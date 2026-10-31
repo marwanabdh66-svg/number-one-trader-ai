@@ -7,14 +7,8 @@ from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from engine import ASSETS, TIMEFRAMES, analyze_asset
-from openai import OpenAI
 
 TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL=os.getenv("OPENAI_MODEL","gpt-4.1-mini")
-AI_INSTRUCTIONS="""أنت المساعد الذكي داخل NUMBER ONE TRADER AI. أجب باللغة العربية الواضحة والمبسطة. ساعد المستخدم في فهم الأسواق والمؤشرات والتحليل الفني والتعليم. لا تدّعِ أنك ترى أسعارًا لحظية ما لم تُجلب من محرك الموقع، ولا تخترع أسعارًا أو إشارات. لا تقدم ضمانات ربح أو توصيات مالية شخصية، ونبّه إلى مخاطر التداول. إذا سُئلت عن أمر تداول حقيقي فوضح أن البوت لا ينفذه."""
-AI_CLIENT=OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
 OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL=os.getenv("OPENAI_MODEL","gpt-4.1-mini")
 client=OpenAI(api_key=OPENAI_API_KEY,timeout=45.0) if OPENAI_API_KEY else None
@@ -42,7 +36,7 @@ HELP="""مرحبًا بك في NUMBER ONE TRADER AI 📈
 /demo التداول التجريبي
 /settings الإعدادات
 /reset مسح ذاكرة المحادثة الحالية
-/help المساعدة\n/ask اطرح سؤالًا على ChatGPT\n/reset بدء محادثة جديدة
+/ask اطرح سؤالًا على ChatGPT\n/reset بدء محادثة جديدة\n/help المساعدة
 
 ملاحظة: التحليل تعليمي ولا يضمن الأرباح."""
 
@@ -135,13 +129,22 @@ async def chat_with_ai(update:Update,context:ContextTypes.DEFAULT_TYPE):
         print(f"OpenAI request failed: {type(exc).__name__}")
         await update.message.reply_text("تعذر الاتصال بالمساعد الذكي الآن. تحقق من إعداد المفتاح ورصيد واجهة API ثم حاول مجددًا.")
 
+
+async def ask_command(update:Update,context:ContextTypes.DEFAULT_TYPE):
+    question=" ".join(context.args).strip()
+    if not question:
+        await update.message.reply_text("اكتب سؤالك بعد الأمر، مثال:\\n/ask ما معنى مؤشر RSI؟")
+        return
+    update.message.text=question
+    await chat_with_ai(update,context)
+
 def main():
     if not TOKEN: raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري.")
     app=Application.builder().token(TOKEN).build()
     for command,fn in [
         ("start",start),("markets",markets),("analyze",analyze),
         ("signals",signals),("history",history),("demo",demo),
-        ("settings",settings),("reset",reset_chat),("help",start)
+        ("settings",settings),("ask",ask_command),("reset",reset_chat),("help",start)
     ]:
         app.add_handler(CommandHandler(command,fn))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,chat_with_ai))
