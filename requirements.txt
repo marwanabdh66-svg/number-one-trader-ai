@@ -1,0 +1,5 @@
+streamlit>=1.40.0
+pandas>=2.1.0
+requests>=2.31.0
+yfinance>=0.2.40
+python-telegram-bot>=21.0
