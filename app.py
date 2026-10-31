@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import streamlit as st
 from engine import ASSETS, TIMEFRAMES, analyze_asset, fetch_market_data, get_market_assets, calculate_indicators
@@ -71,11 +72,14 @@ def scan(timeframe=None,signal_filter=None,markets=None,selected=None,limit=18):
     timeframe=timeframe or st.session_state["timeframe"]; signal_filter=signal_filter or st.session_state["signal_filter"]
     markets=markets or st.session_state["markets"]; selected=selected if selected is not None else st.session_state["selected_assets"]
     assets=get_market_assets(markets,selected if selected else None); results=[]
-    for asset,symbol,market in assets[:limit]:
-        try:
-            item=cached_analysis(asset,symbol,market,timeframe,signal_filter)
-            if item: results.append(item)
-        except Exception: continue
+    # فحص متوازٍ بعدد محدود من الاتصالات حتى لا يتأخر الموقع.
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        jobs={pool.submit(cached_analysis,asset,symbol,market,timeframe,signal_filter):(asset,symbol,market) for asset,symbol,market in assets[:limit]}
+        for job in as_completed(jobs):
+            try:
+                item=job.result()
+                if item: results.append(item)
+            except Exception: continue
     return sorted(results,key=lambda x:x["confidence"],reverse=True)
 
 def render_signal(s):
@@ -89,10 +93,19 @@ if page=="🏠 الرئيسية":
     l,r=st.columns([3,1])
     with l: st.markdown('<div class="panel"><div class="kicker">محرك التحليل</div><h3>اكتشف فرص السوق عبر المؤشرات الفنية</h3><p class="muted">RSI · MACD · EMA · Bollinger Bands · Stochastic · ATR</p><p class="muted">لا يصدر المحرك إشارة عند ضعف البيانات أو تضارب المؤشرات.</p></div>',unsafe_allow_html=True)
     with r: st.markdown('<div class="panel"><div class="kicker">الوضع</div><div class="metric">تجريبي</div><p class="muted">تداول افتراضي فقط</p></div>',unsafe_allow_html=True)
-    if st.button("🔍 فحص الأسواق الآن",use_container_width=True):
-        with st.spinner("يجري فحص الأصول وجلب البيانات..."): found=scan(limit=18)
+    auto_mode=st.toggle("تشغيل الفحص التلقائي كل دقيقة",value=False,key="home_auto_scan")
+    if auto_mode:
+        try:
+            from streamlit_autorefresh import st_autorefresh
+            st_autorefresh(interval=60_000,key="home_scan_refresh")
+        except Exception:
+            st.caption("الفحص التلقائي يحتاج مكتبة التحديث الدوري.")
+    run_scan=st.button("🔍 فحص الأسواق الآن",use_container_width=True) or auto_mode
+    if run_scan:
+        with st.spinner("يجري فحص الأصول وجلب البيانات..."): found=scan(limit=100)
         for s in found: save_signal(s)
-        st.session_state["last_scan"]=found; st.success(f"انتهى الفحص. تم العثور على {len(found)} إشارة مطابقة.")
+        st.session_state["last_scan"]=found
+        st.success(f"انتهى الفحص. تم العثور على {len(found)} إشارة مطابقة.")
     for s in st.session_state.get("last_scan",[])[:6]: render_signal(s)
 
 elif page=="📡 الإشارات":
@@ -102,8 +115,16 @@ elif page=="📡 الإشارات":
     with y: sf=st.selectbox("نوع الإشارات",["جميع الإشارات","الإشارات القوية فقط","إشارات الاتجاه","إشارات الانعكاس"])
     with z: mc=st.selectbox("نطاق الأسواق",["كل الأسواق"]+list(ASSETS.keys()))
     chosen=list(ASSETS.keys()) if mc=="كل الأسواق" else [mc]
-    if st.button("تحديث الإشارات",use_container_width=True):
-        with st.spinner("تحليل البيانات المتاحة..."): found=scan(tf,sf,chosen,limit=18)
+    auto_mode=st.toggle("تحديث تلقائي كل دقيقة",value=False,key="signals_auto_scan")
+    if auto_mode:
+        try:
+            from streamlit_autorefresh import st_autorefresh
+            st_autorefresh(interval=60_000,key="signals_scan_refresh")
+        except Exception:
+            st.caption("الفحص التلقائي يحتاج مكتبة التحديث الدوري.")
+    run_scan=st.button("تحديث الإشارات",use_container_width=True) or auto_mode
+    if run_scan:
+        with st.spinner("تحليل البيانات المتاحة..."): found=scan(tf,sf,chosen,limit=100)
         for s in found: save_signal(s)
         st.session_state["last_scan"]=found; st.success(f"تم العثور على {len(found)} إشارة.")
     signals=st.session_state.get("last_scan",[])
