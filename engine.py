@@ -120,7 +120,7 @@ def calculate_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     delta = close.diff()
     gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
-    rs = gain / loss.replace(0, float("nan"))
+    rs = gain / loss.replace(0, 1e-10)
     data["rsi"] = 100 - (100 / (1 + rs))
     fast = close.ewm(span=12, adjust=False).mean()
     slow = close.ewm(span=26, adjust=False).mean()
