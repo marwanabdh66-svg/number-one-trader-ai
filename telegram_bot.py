@@ -7,8 +7,14 @@ from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from engine import ASSETS, TIMEFRAMES, analyze_asset
+from openai import OpenAI
 
 TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL=os.getenv("OPENAI_MODEL","gpt-4.1-mini")
+AI_INSTRUCTIONS="""أنت المساعد الذكي داخل NUMBER ONE TRADER AI. أجب باللغة العربية الواضحة والمبسطة. ساعد المستخدم في فهم الأسواق والمؤشرات والتحليل الفني والتعليم. لا تدّعِ أنك ترى أسعارًا لحظية ما لم تُجلب من محرك الموقع، ولا تخترع أسعارًا أو إشارات. لا تقدم ضمانات ربح أو توصيات مالية شخصية، ونبّه إلى مخاطر التداول. إذا سُئلت عن أمر تداول حقيقي فوضح أن البوت لا ينفذه."""
+AI_CLIENT=OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL=os.getenv("OPENAI_MODEL","gpt-4.1-mini")
 client=OpenAI(api_key=OPENAI_API_KEY,timeout=45.0) if OPENAI_API_KEY else None
@@ -36,7 +42,7 @@ HELP="""مرحبًا بك في NUMBER ONE TRADER AI 📈
 /demo التداول التجريبي
 /settings الإعدادات
 /reset مسح ذاكرة المحادثة الحالية
-/help المساعدة
+/help المساعدة\n/ask اطرح سؤالًا على ChatGPT\n/reset بدء محادثة جديدة
 
 ملاحظة: التحليل تعليمي ولا يضمن الأرباح."""
 
