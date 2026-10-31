@@ -187,10 +187,12 @@ elif page=="🤖 بوت تيليجرام":
     st.markdown("## بوت NUMBER ONE TRADER AI")
     st.markdown('<div class="panel"><div class="kicker">بوت تيليجرام</div><h3>@NumberOneTraderAI_bot</h3><p class="muted">https://t.me/NumberOneTraderAI_bot</p></div>',unsafe_allow_html=True)
     token_ready=bool(os.getenv("TELEGRAM_BOT_TOKEN") or st.secrets.get("TELEGRAM_BOT_TOKEN",""))
+    ai_ready=bool(os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY",""))
     st.metric("رمز ربط البوت", "موجود" if token_ready else "يحتاج إعدادًا")
-    st.info("ملف تشغيل البوت موجود ضمن المشروع. يحتاج الرمز السري في إعدادات الاستضافة وتشغيل عامل مستقل.")
-    st.code("/start\n/markets\n/analyze BTCUSDT 5m\n/signals\n/history\n/demo\n/settings\n/help",language="text")
-    st.write("يعرض الأسواق ويحلل الأصول ويقدم آخر قراءة فنية. المحاكاة متاحة في الموقع.")
+    st.metric("ربط ChatGPT / OpenAI", "مفتاح موجود" if ai_ready else "بانتظار مفتاح API")
+    st.info("أضف OPENAI_API_KEY في أسرار بيئة تشغيل البوت لتفعيل المحادثة العربية. لا تضع المفتاح في GitHub. يحتاج البوت إلى عامل تشغيل مستمر منفصل عن الموقع.")
+    st.code("/start\n/markets\n/analyze BTCUSDT 5m\n/signals\n/history\n/demo\n/settings\n/reset\n/help",language="text")
+    st.write("يمكن للمستخدم كتابة أي سؤال بالعربية ليتحدث مع المساعد الذكي. يدعم البوت التحليل الفني بالأوامر، وتبقى المحاكاة داخل الموقع.")
 
 elif page=="⚙️ الإعدادات":
     st.markdown("## إعدادات التحليل")
