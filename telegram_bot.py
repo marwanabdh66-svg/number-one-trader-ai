@@ -104,7 +104,10 @@ def ask_openai(history):
     return response.output_text
 
 async def chat_with_ai(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text: return
+    await handle_ai_text(update,context,update.message.text if update.message else "")
+
+async def handle_ai_text(update:Update,context:ContextTypes.DEFAULT_TYPE,user_text:str):
+    if not update.message or not user_text: return
     if client is None:
         await update.message.reply_text(
             "ميزة المحادثة الذكية غير مفعّلة بعد.\n"
@@ -113,7 +116,7 @@ async def chat_with_ai(update:Update,context:ContextTypes.DEFAULT_TYPE):
         )
         return
     history=context.user_data.setdefault("ai_history",[])
-    history.append({"role":"user","content":update.message.text[:4000]})
+    history.append({"role":"user","content":user_text[:4000]})
     # نحتفظ بآخر 12 رسالة فقط لتقليل التكلفة وحجم الطلب.
     history=history[-12:]
     await update.message.chat.send_action("typing")
@@ -135,8 +138,7 @@ async def ask_command(update:Update,context:ContextTypes.DEFAULT_TYPE):
     if not question:
         await update.message.reply_text("اكتب سؤالك بعد الأمر، مثال:\\n/ask ما معنى مؤشر RSI؟")
         return
-    update.message.text=question
-    await chat_with_ai(update,context)
+    await handle_ai_text(update,context,question)
 
 def main():
     if not TOKEN: raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري.")
