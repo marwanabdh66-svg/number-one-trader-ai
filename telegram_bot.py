@@ -1,100 +1,273 @@
-"""بوت NUMBER ONE TRADER AI مع مساعد محادثة يعمل عبر OpenAI Responses API.
-المفاتيح السرية تُقرأ من متغيرات البيئة ولا تحفظ في ملفات المشروع.
-"""
+"""NUMBER ONE TRADER AI — واجهة تيليجرام عربية احترافية."""
 import os
 import asyncio
+import sqlite3
+from datetime import datetime, timezone
+
 from openai import OpenAI
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters
+)
 from engine import ASSETS, TIMEFRAMES, analyze_asset
 
-TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL=os.getenv("OPENAI_MODEL","gpt-4.1-mini")
-client=OpenAI(api_key=OPENAI_API_KEY,timeout=45.0) if OPENAI_API_KEY else None
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+DB_PATH = os.getenv("BOT_DB_PATH", "number_one_bot.sqlite3")
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=45.0) if OPENAI_API_KEY else None
 
-SYSTEM_PROMPT="""أنت المساعد الذكي الرسمي داخل NUMBER ONE TRADER AI.
-تحدث باللغة العربية الواضحة وبأسلوب مختصر ومفيد، ويمكنك شرح المصطلحات للمبتدئين.
-ساعد المستخدم في فهم الأسواق والتحليل الفني والمؤشرات وإدارة المخاطر واستخدام المنصة.
-لا تدّعِ أنك تملك أسعارًا مباشرة أو بيانات لحظية ما لم تُرسل لك بيانات فعلية في سياق الرسالة.
-إذا طلب المستخدم تحليلًا حيًا لأصل، اطلب منه استخدام الأمر /analyze BTCUSDT 5m أو إرسال الرمز والفاصل للأمر.
-لا تخترع أسعارًا أو إشارات أو نتائج تداول. وضّح أن التحليل تعليمي وليس نصيحة مالية ولا ضمانًا للربح.
-لا تنفذ أو توحي بتنفيذ صفقات حقيقية أو عمليات مالية. لا تطلب كلمات مرور أو مفاتيح API أو رموز البوت.
-إذا كان السؤال خارج التداول، أجب عنه بشكل طبيعي وآمن.
+SYSTEM_PROMPT = """أنت المساعد الذكي الرسمي في NUMBER ONE TRADER AI.
+أجب بالعربية الواضحة. اشرح التداول والمؤشرات للمبتدئين.
+لا تخترع أسعارًا أو بيانات لحظية أو نتائج. لا تدّع ضمان الأرباح.
+التحليل تعليمي وليس نصيحة مالية. لا تنفذ صفقات حقيقية ولا تطلب كلمات مرور أو مفاتيح سرية.
 """
 
-HELP="""مرحبًا بك في NUMBER ONE TRADER AI 📈
+GOLD = "◆"
+HELP_TEXT = (
+    "مرحباً بك في NUMBER ONE TRADER AI\n"
+    "مساعدك الذكي لتحليل الأسواق ومتابعة الإشارات.\n\n"
+    "اختر من القائمة بالأسفل للبدء. يمكنك أيضاً إرسال سؤالك مباشرة للمساعد الذكي."
+)
 
-يمكنك الآن كتابة سؤالك بالعربية مباشرة لمحادثة المساعد الذكي.
+def db():
+    con = sqlite3.connect(DB_PATH, timeout=20)
+    con.row_factory = sqlite3.Row
+    return con
 
-الأوامر:
-/start بدء الاستخدام
-/markets عرض الأسواق
-/analyze BTCUSDT 5m تحليل أصل
-/signals طلب طريقة عرض الإشارات
-/history سجل التحليل
-/demo التداول التجريبي
-/settings الإعدادات
-/reset مسح ذاكرة المحادثة الحالية
-/ask اطرح سؤالًا على ChatGPT\n/reset بدء محادثة جديدة\n/help المساعدة
+def init_db():
+    con = db()
+    con.execute("""CREATE TABLE IF NOT EXISTS signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL,
+        asset TEXT, symbol TEXT, market TEXT, timeframe TEXT, direction TEXT,
+        confidence INTEGER, entry REAL, stop_loss REAL, take_profit REAL,
+        source TEXT, created_at TEXT
+    )""")
+    con.commit()
+    con.close()
 
-ملاحظة: التحليل تعليمي ولا يضمن الأرباح."""
+def save_signal(chat_id, result):
+    con = db()
+    con.execute(
+        """INSERT INTO signals(chat_id,asset,symbol,market,timeframe,direction,
+        confidence,entry,stop_loss,take_profit,source,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (chat_id, result["asset"], result["symbol"], result["market"],
+         result["timeframe"], result["direction"], result["confidence"],
+         result["entry"], result["stop_loss"], result["take_profit"],
+         result["source"], result["created_at"])
+    )
+    con.commit()
+    con.close()
 
-def find_asset(q):
-    for market,items in ASSETS.items():
-        for name,symbol in items.items():
-            if q.upper() in (name.upper(),symbol.upper()): return name,symbol,market
-    return None
+def main_keyboard():
+    rows = [
+        [InlineKeyboardButton("📊 تحليل الأسواق", callback_data="markets"),
+         InlineKeyboardButton("📡 الإشارات", callback_data="signals")],
+        [InlineKeyboardButton("🔎 تحليل أصل محدد", callback_data="markets"),
+         InlineKeyboardButton("🧭 الفحص السريع", callback_data="quickscan")],
+        [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
+         InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
+        [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
+         InlineKeyboardButton("❔ المساعدة", callback_data="help")],
+    ]
+    return InlineKeyboardMarkup(rows)
 
-async def send_long(message,text):
-    text=text or "لم أتمكن من تكوين رد."
-    for start in range(0,len(text),3900):
+def markets_keyboard():
+    keys = list(ASSETS.keys())
+    rows = []
+    for i in range(0, len(keys), 2):
+        rows.append([InlineKeyboardButton("🌐 " + keys[j], callback_data=f"market:{j}") for j in range(i, min(i+2, len(keys)))])
+    rows.append([InlineKeyboardButton("⬅️ القائمة الرئيسية", callback_data="home")])
+    return InlineKeyboardMarkup(rows)
+
+def assets_keyboard(market_index):
+    market = list(ASSETS.keys())[market_index]
+    assets = list(ASSETS[market].items())
+    rows = []
+    for i in range(0, len(assets), 2):
+        rows.append([
+            InlineKeyboardButton(assets[j][0], callback_data=f"asset:{market_index}:{j}")
+            for j in range(i, min(i+2, len(assets)))
+        ])
+    rows.append([InlineKeyboardButton("⬅️ الأسواق", callback_data="markets"),
+                 InlineKeyboardButton("🏠 الرئيسية", callback_data="home")])
+    return InlineKeyboardMarkup(rows)
+
+def timeframe_keyboard():
+    labels = list(TIMEFRAMES.keys())
+    rows = []
+    for i in range(0, len(labels), 3):
+        rows.append([InlineKeyboardButton(labels[j], callback_data=f"tf:{j}") for j in range(i, min(i+3, len(labels)))])
+    rows.append([InlineKeyboardButton("⬅️ تغيير الأصل", callback_data="markets"),
+                 InlineKeyboardButton("🏠 الرئيسية", callback_data="home")])
+    return InlineKeyboardMarkup(rows)
+
+def fmt(value):
+    return f"{value:,.6f}" if abs(float(value)) < 100 else f"{value:,.2f}"
+
+def signal_text(s):
+    arrow = "🟢 صعود" if s["direction"] == "صعود" else "🔴 هبوط"
+    return (
+        "╔═══════ ◈ ═══════╗\n"
+        "      NUMBER ONE TRADER AI\n"
+        "╚═══════ ◈ ═══════╝\n\n"
+        f"💠 الأصل: {s['asset']} ({s['symbol']})\n"
+        f"🌐 السوق: {s['market']}\n"
+        f"⏱️ الفاصل: {s['timeframe']}\n"
+        f"📍 الاتجاه: {arrow}\n"
+        f"🎯 توافق المؤشرات: {s['confidence']}%\n\n"
+        f"💰 الدخول المرجعي: {fmt(s['entry'])}\n"
+        f"🛑 وقف الخسارة الحسابي: {fmt(s['stop_loss'])}\n"
+        f"🏁 الهدف الحسابي: {fmt(s['take_profit'])}\n"
+        f"📈 RSI: {s['rsi']}\n"
+        f"🧩 مصدر البيانات: {s['source']}\n"
+        f"🕒 التوقيت: {s['created_at']}\n\n"
+        f"📝 الأسباب: {s['reasons']}\n\n"
+        "⚠️ تحليل فني تجريبي، وليس توصية مالية أو ضماناً للربح."
+    )
+
+async def send_long(message, text):
+    for start in range(0, len(text), 3900):
         await message.reply_text(text[start:start+3900])
 
-async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.setdefault("timeframe", "5 دقائق")
+    await update.message.reply_text(HELP_TEXT, reply_markup=main_keyboard())
 
-async def markets(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("\n".join("• "+m+": "+", ".join(a.keys()) for m,a in ASSETS.items()))
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📘 دليل NUMBER ONE TRADER AI\n\n"
+        "1) اختر السوق.\n2) اختر الأصل.\n3) اختر الفاصل الزمني.\n"
+        "4) اطلب التحليل لعرض الاتجاه ومستويات الدخول والوقف والهدف.\n\n"
+        "الأوامر: /start /markets /analyze /history /reset /help\n"
+        "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
+        reply_markup=main_keyboard()
+    )
 
-async def analyze(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("مثال: /analyze BTCUSDT 5m");return
-    found=find_asset(context.args[0])
-    if not found:
-        await update.message.reply_text("الأصل غير معروف. استخدم /markets.");return
-    name,symbol,market=found; code=context.args[1] if len(context.args)>1 else "5m"
-    tf=next((label for label,(c,y) in TIMEFRAMES.items() if c==code),None)
-    if not tf:
-        await update.message.reply_text("الفواصل: 1m، 5m، 15m، 30m، 1h، 4h");return
-    await update.message.reply_text("جارٍ تحليل الأصل...")
+async def show_history(chat_id, message):
+    con = db()
+    rows = con.execute(
+        "SELECT * FROM signals WHERE chat_id=? ORDER BY id DESC LIMIT 10", (chat_id,)
+    ).fetchall()
+    con.close()
+    if not rows:
+        await message.reply_text("لا يوجد سجل تحليلات محفوظ حتى الآن.", reply_markup=main_keyboard())
+        return
+    lines = ["🕘 آخر تحليلاتك في NUMBER ONE TRADER AI", ""]
+    for row in rows:
+        arrow = "🟢" if row["direction"] == "صعود" else "🔴"
+        lines.append(f"{arrow} {row['asset']} | {row['timeframe']} | {row['confidence']}% | {row['created_at']}")
+    await message.reply_text("\n".join(lines), reply_markup=main_keyboard())
+
+async def analyze_selected(update, context, query=None):
+    asset = context.user_data.get("asset")
+    if not asset:
+        await query.edit_message_text("اختر السوق أولاً.", reply_markup=markets_keyboard())
+        return
+    name, symbol, market = asset
+    timeframe = context.user_data.get("timeframe", "5 دقائق")
+    await query.edit_message_text(f"⏳ جارٍ تحليل {name} على فاصل {timeframe}...")
     try:
-        result=await asyncio.to_thread(analyze_asset,name,symbol,market,tf,"جميع الإشارات")
+        result = await asyncio.to_thread(analyze_asset, name, symbol, market, timeframe, "جميع الإشارات")
     except Exception:
-        result=None
+        result = None
     if not result:
-        await update.message.reply_text("لا توجد إشارة واضحة أو البيانات غير متاحة الآن.");return
-    arrow="🟢 صعود" if result["direction"]=="صعود" else "🔴 هبوط"
-    await update.message.reply_text(f"الأصل: {name} ({symbol})\nالاتجاه: {arrow}\nالفاصل: {tf}\nقوة توافق المؤشرات: {result['confidence']}%\nالدخول المرجعي: {result['entry']:.6f}\nوقف الخسارة الحسابي: {result['stop_loss']:.6f}\nالهدف الحسابي: {result['take_profit']:.6f}\nRSI: {result['rsi']}\nالمصدر: {result['source']}\n\nهذه قراءة فنية تجريبية وليست ضمانًا للربح.")
+        await query.message.reply_text(
+            "لم تتوفر بيانات كافية أو لا توجد إشارة واضحة الآن. حاول لاحقاً أو اختر فاصلاً آخر.",
+            reply_markup=main_keyboard()
+        )
+        return
+    save_signal(query.message.chat_id, result)
+    await query.message.reply_text(
+        signal_text(result),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 إعادة التحليل", callback_data="reanalyze"),
+             InlineKeyboardButton("📊 تحليل أصل آخر", callback_data="markets")],
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]
+        ])
+    )
 
-async def signals(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("لتحليل إشارة محدثة استخدم مثلًا:\n/analyze BTCUSDT 5m")
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    data = q.data or ""
+    if data == "home":
+        await q.edit_message_text(HELP_TEXT, reply_markup=main_keyboard())
+    elif data == "markets":
+        await q.edit_message_text("🌐 اختر السوق الذي تريد تحليله:", reply_markup=markets_keyboard())
+    elif data.startswith("market:"):
+        mi = int(data.split(":")[1])
+        context.user_data["market_index"] = mi
+        market = list(ASSETS.keys())[mi]
+        await q.edit_message_text(f"اختر الأصل من سوق {market}:", reply_markup=assets_keyboard(mi))
+    elif data.startswith("asset:"):
+        _, mi, ai = data.split(":")
+        market = list(ASSETS.keys())[int(mi)]
+        name, symbol = list(ASSETS[market].items())[int(ai)]
+        context.user_data["asset"] = (name, symbol, market)
+        await q.edit_message_text(
+            f"تم اختيار {name} ({symbol}).\nاختر الفاصل الزمني:",
+            reply_markup=timeframe_keyboard()
+        )
+    elif data.startswith("tf:"):
+        idx = int(data.split(":")[1])
+        label = list(TIMEFRAMES.keys())[idx]
+        context.user_data["timeframe"] = label
+        await q.edit_message_text(
+            f"تم اختيار الفاصل: {label}\nهل تريد بدء التحليل؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 ابدأ التحليل الآن", callback_data="analyze")],
+                [InlineKeyboardButton("⏱️ تغيير الفاصل", callback_data="change_tf"),
+                 InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data == "change_tf":
+        await q.edit_message_text("اختر الفاصل الزمني:", reply_markup=timeframe_keyboard())
+    elif data in ("analyze", "reanalyze"):
+        await analyze_selected(update, context, q)
+    elif data == "signals":
+        await q.edit_message_text(
+            "📡 مركز الإشارات\n\nاختر أصلاً وفاصلاً زمنياً للحصول على قراءة فنية محدثة. "
+            "لا يتم إرسال إشارات تلقائية في الخلفية حالياً.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔎 اختر أصلاً للتحليل", callback_data="markets")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data == "quickscan":
+        await q.edit_message_text(
+            "🧭 الفحص السريع\nاختر السوق أولاً، ثم الأصل والفاصل الزمني. "
+            "الفحص الشامل المجدول سيضاف بعد تجهيز خدمة التشغيل المستمر.",
+            reply_markup=markets_keyboard()
+        )
+    elif data == "history":
+        await show_history(q.message.chat_id, q.message)
+    elif data == "settings":
+        current = context.user_data.get("timeframe", "5 دقائق")
+        await q.edit_message_text(
+            f"⚙️ إعداداتك الحالية\nالفاصل الافتراضي: {current}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⏱️ تغيير الفاصل الافتراضي", callback_data="change_tf")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data == "assistant":
+        await q.edit_message_text(
+            "🤖 المساعد الذكي جاهز للمحادثة. أرسل سؤالك برسالة نصية هنا.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]])
+        )
+    elif data == "help":
+        await q.edit_message_text(
+            "📘 اختر السوق ثم الأصل ثم الفاصل الزمني، وبعدها اضغط ابدأ التحليل. "
+            "يمكنك أيضاً إرسال أسئلتك نصياً للمساعد الذكي.",
+            reply_markup=main_keyboard()
+        )
 
-async def history(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سجل الإشارات الكامل موجود في صفحة سجل الإشارات بالموقع.")
-
-async def demo(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("التداول التجريبي متاح من محاكي التداول في الموقع. لا ينفذ البوت صفقات حقيقية.")
-
-async def settings(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("الفواصل المتاحة: 1m، 5m، 15m، 30m، 1h، 4h.\nيمكن تغيير بقية الإعدادات من الموقع.")
-
-async def reset_chat(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    context.user_data.pop("ai_history",None)
-    await update.message.reply_text("تم مسح سياق المحادثة الحالية. ابدأ سؤالًا جديدًا.")
-
-def ask_openai(history):
-    response=client.responses.create(
+async def ask_openai(history):
+    response = await asyncio.to_thread(
+        client.responses.create,
         model=OPENAI_MODEL,
         instructions=SYSTEM_PROMPT,
         input=history,
@@ -103,55 +276,89 @@ def ask_openai(history):
     )
     return response.output_text
 
-async def chat_with_ai(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    await handle_ai_text(update,context,update.message.text if update.message else "")
-
-async def handle_ai_text(update:Update,context:ContextTypes.DEFAULT_TYPE,user_text:str):
-    if not update.message or not user_text: return
+async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
     if client is None:
         await update.message.reply_text(
-            "ميزة المحادثة الذكية غير مفعّلة بعد.\n"
-            "يلزم إضافة مفتاح OPENAI_API_KEY إلى أسرار تشغيل البوت.\n"
-            "يمكنك استخدام أوامر تحليل السوق الحالية مثل /analyze BTCUSDT 5m."
+            "المساعد الذكي غير مفعّل بعد. يلزم إضافة OPENAI_API_KEY إلى أسرار تشغيل البوت. "
+            "يمكنك استخدام أزرار تحليل الأسواق حالياً."
         )
         return
-    history=context.user_data.setdefault("ai_history",[])
-    history.append({"role":"user","content":user_text[:4000]})
-    # نحتفظ بآخر 12 رسالة فقط لتقليل التكلفة وحجم الطلب.
-    history=history[-12:]
+    history = context.user_data.setdefault("ai_history", [])
+    history.append({"role": "user", "content": update.message.text[:4000]})
+    history = history[-12:]
     await update.message.chat.send_action("typing")
     try:
-        answer=await asyncio.to_thread(ask_openai,history)
+        answer = await ask_openai(history)
         if not answer:
-            answer="لم يصلني رد نصي. حاول صياغة السؤال بطريقة أخرى."
-        history.append({"role":"assistant","content":answer})
-        context.user_data["ai_history"]=history[-12:]
-        await send_long(update.message,answer)
+            answer = "لم يصلني رد نصي. حاول مرة أخرى."
+        history.append({"role": "assistant", "content": answer})
+        context.user_data["ai_history"] = history[-12:]
+        await send_long(update.message, answer)
     except Exception as exc:
-        # لا نرسل تفاصيل الخطأ أو بيانات الاعتماد للمستخدم.
         print(f"OpenAI request failed: {type(exc).__name__}")
-        await update.message.reply_text("تعذر الاتصال بالمساعد الذكي الآن. تحقق من إعداد المفتاح ورصيد واجهة API ثم حاول مجددًا.")
+        await update.message.reply_text(
+            "تعذر الاتصال بالمساعد الذكي الآن. تحقق من إعداد مفتاح الخدمة ورصيد واجهة API."
+        )
 
-
-async def ask_command(update:Update,context:ContextTypes.DEFAULT_TYPE):
-    question=" ".join(context.args).strip()
-    if not question:
-        await update.message.reply_text("اكتب سؤالك بعد الأمر، مثال:\\n/ask ما معنى مؤشر RSI؟")
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("مثال: /analyze BTCUSDT 5m")
         return
-    await handle_ai_text(update,context,question)
+    requested = context.args[0].upper()
+    found = None
+    for market, items in ASSETS.items():
+        for name, symbol in items.items():
+            if requested in (name.upper(), symbol.upper()):
+                found = (name, symbol, market)
+                break
+        if found:
+            break
+    if not found:
+        await update.message.reply_text("الأصل غير معروف. استخدم /markets.")
+        return
+    timeframe_code = context.args[1] if len(context.args) > 1 else "5m"
+    label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), None)
+    if not label:
+        await update.message.reply_text("الفواصل: 1m، 5m، 15m، 30m، 1h، 4h")
+        return
+    context.user_data["asset"] = found
+    context.user_data["timeframe"] = label
+    await update.message.reply_text("⏳ جارٍ التحليل...")
+    try:
+        result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
+    except Exception:
+        result = None
+    if not result:
+        await update.message.reply_text("لا توجد إشارة واضحة أو البيانات غير متاحة الآن.")
+        return
+    save_signal(update.effective_chat.id, result)
+    await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_history(update.effective_chat.id, update.message)
+
+async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("ai_history", None)
+    await update.message.reply_text("تم مسح سياق المحادثة.", reply_markup=main_keyboard())
 
 def main():
-    if not TOKEN: raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري.")
-    app=Application.builder().token(TOKEN).build()
-    for command,fn in [
-        ("start",start),("markets",markets),("analyze",analyze),
-        ("signals",signals),("history",history),("demo",demo),
-        ("settings",settings),("ask",ask_command),("reset",reset_chat),("help",start)
-    ]:
-        app.add_handler(CommandHandler(command,fn))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,chat_with_ai))
+    if not TOKEN:
+        raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري في خدمة الاستضافة.")
+    init_db()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("اختر السوق:", reply_markup=markets_keyboard())))
+    app.add_handler(CommandHandler("analyze", analyze_command))
+    app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("reset", reset_chat))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_ai))
     print("NUMBER ONE TRADER AI Telegram bot is running.")
-    print("OpenAI chat enabled." if client else "OpenAI chat disabled: OPENAI_API_KEY is missing.")
+    print("AI assistant enabled." if client else "AI assistant disabled: OPENAI_API_KEY missing.")
     app.run_polling()
 
-if __name__=="__main__": main()
+if __name__ == "__main__":
+    main()
