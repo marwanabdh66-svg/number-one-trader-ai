@@ -350,8 +350,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "استخدم زر حالة التداول لمتابعة النتائج أو إيقاف الجلسة. لا توجد أموال حقيقية مستخدمة.",
                 reply_markup=main_keyboard()
             )
-        except (ValueError, KeyError):
-            await update.message.reply_text("أرسل مبلغاً رقمياً أكبر من صفر، مثل 100.")
+        except ValueError as exc:
+            context.user_data["awaiting_auto_capital"] = False
+            context.user_data.pop("auto_setup", None)
+            await update.message.reply_text(str(exc) if "جلسة تداول" in str(exc) else "أرسل مبلغاً رقمياً أكبر من صفر، مثل 100.")
+        except KeyError:
+            context.user_data["awaiting_auto_capital"] = False
+            await update.message.reply_text("تعذر قراءة الإعدادات. ابدأ إعداد التداول الآلي من القائمة الرئيسية.")
         return
     await chat_with_ai(update, context)
 
