@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import streamlit as st
 from engine import ASSETS, TIMEFRAMES, analyze_asset, fetch_market_data, get_market_assets, calculate_indicators
+from exchange_monitor import BinanceReadOnlyMonitor, ExchangeMonitorError
 
 st.set_page_config(page_title="NUMBER ONE TRADER AI", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 DB_PATH = os.getenv("TRADER_DB_PATH", "number_one_trader.db")
@@ -180,45 +181,74 @@ elif page=="🧪 التداول التجريبي":
 
 elif page=="🔗 ربط حساب التداول":
     st.markdown("## 🔗 ربط حسابك بمنصة التداول")
-    st.markdown('<div class="panel"><div class="kicker">دليل الربط خطوة بخطوة</div><h3>اربط حسابك بنفسك — دون مشاركة كلمة مرورك</h3><p class="muted">اختر المنصة، واتبع التعليمات لإنشاء مفتاح API بصلاحية القراءة فقط. لا ترسل كلمة المرور أو رمز التحقق أو المفتاح السري إلى أي شخص.</p></div>',unsafe_allow_html=True)
     exchange=st.selectbox("اختر منصة التداول",["Binance","Bybit","OKX"])
-    purpose=st.radio("ماذا تريد أن تفعل؟",["متابعة الحساب والصفقات فقط","التداول الآلي بأموال حقيقية"],horizontal=True)
-    if exchange=="Binance":
-        steps=[
-            "افتح تطبيق أو موقع Binance وسجّل الدخول بنفسك.",
-            "افتح إدارة الحساب ثم إدارة API (إدارة مفاتيح واجهة API). قد يطلب منك التحقق الأمني.",
-            "أنشئ مفتاح API جديداً باسم NUMBER ONE TRADER AI.",
-            "اختر صلاحية القراءة فقط (Read Only / Enable Reading). لا تفعّل السحب أو التحويل.",
-            "فعّل تقييد عنوان IP المسموح به إذا كانت خدمة الربط توفر لك عنوان خادم ثابتاً.",
-            "انسخ المفتاح والسر إلى المكان الآمن المخصص داخل عملية الربط الرسمية فقط. لا ترسلهما في المحادثة ولا تضعهما في GitHub."
-        ]
-    elif exchange=="Bybit":
-        steps=[
-            "افتح Bybit وسجّل الدخول بنفسك.",
-            "من إعدادات الحساب افتح API Management / إدارة API.",
-            "أنشئ مفتاحاً جديداً باسم NUMBER ONE TRADER AI.",
-            "للمراقبة اختر صلاحيات القراءة فقط (Read-Only) دون صلاحيات التداول أو السحب.",
-            "قيّد المفتاح بعنوان IP ثابت إذا كان متاحاً، ثم احفظه في قناة الربط الآمنة فقط."
-        ]
+    if exchange != "Binance":
+        st.info("ربط هذه المنصة غير متاح بعد. سنضيفها بعد اختبار Binance.")
+        st.caption("الحالة: قريباً")
     else:
-        steps=[
-            "افتح OKX وسجّل الدخول بنفسك.",
-            "من الملف الشخصي أو مركز المستخدم افتح API ثم أنشئ مفتاح API جديداً.",
-            "اختر صلاحية القراءة فقط (Read) للمراقبة.",
-            "لا تمنح صلاحيات Trade أو Withdraw في وضع المراقبة.",
-            "استخدم عبارة المرور الخاصة بالمفتاح عند الربط الآمن فقط، ولا تشاركها مع أي شخص."
-        ]
-    st.markdown("### خطوات إنشاء مفتاح آمن")
-    for i,step in enumerate(steps,1):
-        st.markdown(f"**{i}.** {step}")
-    st.warning("تنبيه أمني: مفتاح API ليس كلمة مرور الحساب، لكنه يتيح الوصول وفق الصلاحيات التي تمنحها له. لا تفعّل السحب مطلقاً، ولا تنشر المفتاح أو السر في صورة أو رسالة.")
-    if purpose=="متابعة الحساب والصفقات فقط":
-        st.success("الوضع المحدد: مراقبة فقط. هذا هو الوضع الموصى به للبدء.")
-        st.info("بعد تفعيل الربط الآمن لكل مستخدم، ستظهر هنا حالة الاتصال والأرصدة والأوامر المفتوحة وسجل التنفيذ. هذه النسخة تعرض دليل الإعداد فقط؛ لا تلصق مفاتيح API في هذه الصفحة لأن تسجيل الدخول والتخزين المشفر المنفصل لكل مستخدم لم يكتمل بعد.")
-    else:
-        st.warning("التداول الحقيقي غير مفعّل حالياً. لا تمنح صلاحية التداول لمفتاحك الآن. سيظهر هذا الخيار بعد اكتمال حسابات المستخدمين والتخزين المشفر واختبارات الأوامر والحماية وموافقة المستخدم الصريحة.")
-    st.markdown("### قبل إتمام الربط")
-    st.markdown("- لا تشارك كلمة مرور المنصة أو رمز المصادقة الثنائية مع البوت.\n- لا تمنح صلاحية السحب.\n- استخدم مفتاحاً منفصلاً لهذا التطبيق، ويمكنك إبطاله من المنصة في أي وقت.\n- تأكد أن اسم المنصة والحساب الظاهرين لك صحيحان قبل المتابعة.")
+        st.markdown('<div class="panel"><div class="kicker">المرحلة الأولى · قراءة فقط</div><h3>اربط حساب Binance واعرض بياناته</h3><p class="muted">أدخل مفتاح API والسر في النموذج الآمن لهذه الجلسة فقط. لا نكتب المفاتيح في قاعدة البيانات أو ملفات المشروع.</p></div>',unsafe_allow_html=True)
+        st.warning("أنشئ مفتاحاً بصلاحية القراءة فقط، وعطّل التداول والسحب والتحويل. لا تستخدم مفتاحك الأساسي. الاتصال يمر عبر خادم التطبيق؛ لا تستخدمه إذا لم تكن تثق بجهة الاستضافة.")
+        with st.form("binance_readonly_connect", clear_on_submit=True):
+            api_key = st.text_input("مفتاح API", type="password", autocomplete="off")
+            api_secret = st.text_input("السر السري لمفتاح API", type="password", autocomplete="off")
+            trade_symbol = st.text_input("رمز العملة لعرض سجل التنفيذ (مثال BTCUSDT)", value="BTCUSDT")
+            submitted = st.form_submit_button("🔗 ربط حسابي والتحقق من الاتصال", use_container_width=True)
+        if submitted:
+            if not api_key.strip() or not api_secret.strip():
+                st.error("أدخل مفتاح API والسر لإتمام التحقق.")
+            else:
+                try:
+                    monitor = BinanceReadOnlyMonitor(api_key=api_key, api_secret=api_secret, testnet=False)
+                    with st.spinner("يجري التحقق من Binance وتحميل بيانات الحساب..."):
+                        monitor.ping()
+                        account_data = monitor.account()
+                        open_orders_data = monitor.open_orders()
+                        recent_trades_data = monitor.recent_trades(trade_symbol.strip().upper(), limit=20)
+                    st.session_state["binance_monitor_snapshot"] = {
+                        "account": account_data,
+                        "open_orders": open_orders_data,
+                        "recent_trades": recent_trades_data,
+                        "symbol": trade_symbol.strip().upper(),
+                        "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    st.success("تم الاتصال بنجاح. الحساب متصل بوضع القراءة فقط داخل هذه الجلسة.")
+                except ExchangeMonitorError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("تعذر إكمال الربط بسبب خطأ غير متوقع. تحقق من الإعدادات وحاول مجدداً.")
+        snapshot = st.session_state.get("binance_monitor_snapshot")
+        if snapshot:
+            account_data = snapshot["account"]
+            st.markdown("### <escape>🟢</escape> بيانات الحساب")
+            st.caption(f"آخر تحقق: {snapshot['checked_at']} · سجل التنفيذ للرمز {snapshot['symbol']}")
+            if account_data.get("can_withdraw"):
+                st.error("تنبيه: تشير بيانات الحساب إلى أن السحب مسموح. أوقف الربط وأنشئ مفتاحاً جديداً بصلاحية قراءة فقط مع تعطيل السحب.")
+            a,b,c = st.columns(3)
+            a.metric("الأرصدة غير الصفرية", len(account_data.get("balances", [])))
+            b.metric("الأوامر المفتوحة", len(snapshot["open_orders"]))
+            c.metric("عمليات التنفيذ المعروضة", len(snapshot["recent_trades"]))
+            st.markdown("#### الأرصدة")
+            balances = account_data.get("balances", [])
+            if balances:
+                st.dataframe(pd.DataFrame(balances), use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد أرصدة غير صفرية في حساب Spot.")
+            st.markdown("#### الأوامر المفتوحة")
+            if snapshot["open_orders"]:
+                st.dataframe(pd.DataFrame(snapshot["open_orders"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد أوامر مفتوحة حالياً.")
+            st.markdown(f"#### آخر عمليات التنفيذ · {snapshot['symbol']}")
+            if snapshot["recent_trades"]:
+                st.dataframe(pd.DataFrame(snapshot["recent_trades"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("لم تُرجع المنصة عمليات تنفيذ حديثة لهذا الرمز.")
+            if st.button("مسح بيانات الحساب من هذه الجلسة", use_container_width=True):
+                st.session_state.pop("binance_monitor_snapshot", None)
+                st.rerun()
+            st.caption("هذه البيانات لقطة وقت الاتصال وليست بثاً لحظياً مستمراً. أعد الربط لتحديثها. لا يتم حفظ مفاتيح API في قاعدة بيانات التطبيق.")
+        st.markdown("### حماية الحساب")
+        st.markdown("- أنشئ مفتاحاً منفصلاً بصلاحية القراءة فقط، ولا تمنح صلاحية السحب أو التداول.\n- فعّل تقييد عنوان IP إذا كان عنوان خادم الاستضافة ثابتاً.\n- لا ترسل المفتاح أو السر في المحادثات أو الصور ولا تضعهما في GitHub.\n- هذا الإصدار لا يملك بعد تسجيل دخول موثوقاً وحسابات مستخدمين؛ لذلك لا تحفظ بيانات الربط بعد انتهاء الجلسة ولا تعتبر هذه الخطوة نظام حسابات متعدد المستخدمين مكتملاً.")
 
 elif page=="🗂️ سجل الإشارات":
     st.markdown("## سجل الإشارات");con=db();rows=con.execute("SELECT * FROM signal_history ORDER BY id DESC LIMIT 300").fetchall();con.close()
