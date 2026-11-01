@@ -189,7 +189,7 @@ elif page=="🔗 ربط حساب التداول":
         st.markdown('<div class="panel"><div class="kicker">المرحلة الأولى · قراءة فقط</div><h3>اربط حساب Binance واعرض بياناته</h3><p class="muted">أدخل مفتاح API والسر في النموذج الآمن لهذه الجلسة فقط. لا نكتب المفاتيح في قاعدة البيانات أو ملفات المشروع.</p></div>',unsafe_allow_html=True)
         st.warning("أنشئ مفتاحاً بصلاحية القراءة فقط، وعطّل التداول والسحب والتحويل. لا تستخدم مفتاحك الأساسي. الاتصال يمر عبر خادم التطبيق؛ لا تستخدمه إذا لم تكن تثق بجهة الاستضافة.")
         with st.form("binance_readonly_connect", clear_on_submit=True):
-            api_key = st.text_input("مفتاح API", type="password", autocomplete="off")
+            api_key = st.text_input("مفتاح API", type="password")
             api_secret = st.text_input("السر السري لمفتاح API", type="password", autocomplete="off")
             trade_symbol = st.text_input("رمز العملة لعرض سجل التنفيذ (مثال BTCUSDT)", value="BTCUSDT")
             submitted = st.form_submit_button("🔗 ربط حسابي والتحقق من الاتصال", use_container_width=True)
@@ -219,7 +219,7 @@ elif page=="🔗 ربط حساب التداول":
         snapshot = st.session_state.get("binance_monitor_snapshot")
         if snapshot:
             account_data = snapshot["account"]
-            st.markdown("### <escape>🟢</escape> بيانات الحساب")
+            st.markdown("### 🟢 بيانات الحساب")
             st.caption(f"آخر تحقق: {snapshot['checked_at']} · سجل التنفيذ للرمز {snapshot['symbol']}")
             if account_data.get("can_withdraw"):
                 st.error("تنبيه: تشير بيانات الحساب إلى أن السحب مسموح. أوقف الربط وأنشئ مفتاحاً جديداً بصلاحية قراءة فقط مع تعطيل السحب.")
