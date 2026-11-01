@@ -73,8 +73,8 @@ def init_auto_db() -> None:
         con.execute("CREATE INDEX IF NOT EXISTS idx_auto_trades_open ON auto_trades(chat_id,status)")
 
 
-def start_session(chat_id: int, capital: float, duration_hours: int, risk_pct: float) -> None:
-    if capital <= 0 or duration_hours not in (1, 3, 6, 12, 24) or risk_pct not in (0.5, 1.0):
+def start_session(chat_id: int, capital: float, duration_hours: int, risk_pct: float, max_daily_loss_pct: float = 3.0) -> None:
+    if capital <= 0 or duration_hours not in (1, 3, 6, 12, 24) or risk_pct not in (0.5, 1.0) or max_daily_loss_pct not in (2.0, 3.0, 5.0):
         raise ValueError("إعدادات تشغيل غير صالحة")
     now = _now()
     day_key = now.date().isoformat()
@@ -85,14 +85,14 @@ def start_session(chat_id: int, capital: float, duration_hours: int, risk_pct: f
         con.execute("""INSERT INTO auto_sessions
             (chat_id,initial_capital,balance,duration_hours,risk_pct,max_daily_loss_pct,
              started_at,ends_at,status,last_scan,day_key,day_start_balance,updated_at)
-            VALUES(?,?,?,?,?,3.0,?,?, 'running',NULL,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,'running',NULL,?,?,?)
             ON CONFLICT(chat_id) DO UPDATE SET
             initial_capital=excluded.initial_capital,balance=excluded.balance,
             duration_hours=excluded.duration_hours,risk_pct=excluded.risk_pct,
             max_daily_loss_pct=excluded.max_daily_loss_pct,started_at=excluded.started_at,
             ends_at=excluded.ends_at,status='running',last_scan=NULL,day_key=excluded.day_key,
             day_start_balance=excluded.day_start_balance,updated_at=excluded.updated_at""",
-            (chat_id, capital, capital, duration_hours, risk_pct, _iso(now),
+            (chat_id, capital, capital, duration_hours, risk_pct, max_daily_loss_pct, _iso(now),
              _iso(now + timedelta(hours=duration_hours)), day_key, capital, _iso(now)))
         
 
