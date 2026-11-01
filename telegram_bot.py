@@ -151,7 +151,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📘 دليل NUMBER ONE TRADER AI\n\n"
         "1) اختر السوق.\n2) اختر الأصل.\n3) اختر الفاصل الزمني.\n"
         "4) اطلب التحليل لعرض الاتجاه ومستويات الدخول والوقف والهدف.\n\n"
-        "الأوامر: /start /markets /analyze /history /reset /help\n"
+        "الأوامر: /start /markets /analyze /history /account /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
     )
