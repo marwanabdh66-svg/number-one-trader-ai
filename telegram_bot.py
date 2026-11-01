@@ -11,7 +11,7 @@ from telegram.ext import (
     ContextTypes, filters
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset
-from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle
+from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -27,9 +27,14 @@ SYSTEM_PROMPT = """أنت المساعد الذكي الرسمي في NUMBER ONE
 
 GOLD = "◆"
 HELP_TEXT = (
-    "مرحباً بك في NUMBER ONE TRADER AI\n"
-    "مساعدك الذكي لتحليل الأسواق ومتابعة الإشارات.\n\n"
-    "اختر من القائمة بالأسفل للبدء. يمكنك أيضاً إرسال سؤالك مباشرة للمساعد الذكي."
+    "╔════════════════════╗\n"
+    "     ◆ NUMBER ONE ◆\n"
+    "       TRADER AI\n"
+    "╚════════════════════╝\n\n"
+    "مرحباً بك في مركز التحليل والتداول الذكي.\n"
+    "حلّل الأسواق، راقب الفرص، واختبر استراتيجياتك في بيئة تجريبية.\n\n"
+    "اختر الخدمة من لوحة التحكم أدناه.\n"
+    "🛡️ التداول الآلي المتاح حالياً محاكاة فقط؛ لا يستخدم أموالاً حقيقية."
 )
 
 def db():
@@ -239,9 +244,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "auto_status":
         await q.edit_message_text(format_status(q.message.chat_id), reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📜 سجل الصفقات", callback_data="auto_trades")],
             [InlineKeyboardButton("⏹️ إيقاف التداول الآلي", callback_data="auto_stop")],
             [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
         ]))
+    elif data == "auto_trades":
+        rows = get_trade_history(q.message.chat_id, 10)
+        if not rows:
+            await q.edit_message_text("لا توجد صفقات تجريبية مسجلة بعد.", reply_markup=main_keyboard())
+        else:
+            lines = ["📜 سجل آخر الصفقات التجريبية", ""]
+            for row in rows:
+                status = "مفتوحة" if row["status"] == "open" else "مغلقة"
+                pnl = "قيد المتابعة" if row["pnl"] is None else f"{row['pnl']:+.2f}"
+                lines.append(f"{row['asset']} | {row['direction']} | {status}\nالدخول: {row['entry']:.6g} | النتيجة: {pnl}")
+            await q.edit_message_text("\n\n".join(lines), reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 تحديث الحالة", callback_data="auto_status")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ]))
     elif data == "auto_stop":
         stopped = stop_session(q.message.chat_id)
         await q.edit_message_text(
@@ -424,6 +444,44 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_history(update.effective_chat.id, update.message)
 
+
+async def auto_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        format_status(update.effective_chat.id),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏹️ إيقاف المحاكاة", callback_data="auto_stop")],
+            [InlineKeyboardButton("📜 سجل الصفقات", callback_data="auto_trades")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")],
+        ]),
+    )
+
+
+async def auto_trades_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = get_trade_history(update.effective_chat.id, 10)
+    if not rows:
+        await update.message.reply_text("لا توجد صفقات تجريبية مسجلة بعد.", reply_markup=main_keyboard())
+        return
+    lines = ["📜 سجل آخر الصفقات التجريبية", ""]
+    for row in rows:
+        status = "مفتوحة" if row["status"] == "open" else "مغلقة"
+        pnl = "قيد المتابعة" if row["pnl"] is None else f"{row['pnl']:+.2f}"
+        lines.append(
+            f"{'🟡' if row['status'] == 'open' else '⚪'} {row['asset']} | {row['direction']} | {status}\n"
+            f"الدخول: {row['entry']:.6g} | الوقف: {row['stop_loss']:.6g} | الهدف: {row['take_profit']:.6g}\n"
+            f"النتيجة: {pnl}"
+        )
+    await send_long(update.message, "\n\n".join(lines))
+
+
+async def stop_auto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stopped = stop_session(update.effective_chat.id)
+    await update.message.reply_text(
+        "تم إيقاف جلسة المحاكاة وإغلاق الصفقة الافتراضية المفتوحة إن وجدت."
+        if stopped else "لا توجد جلسة محاكاة نشطة حالياً.",
+        reply_markup=main_keyboard(),
+    )
+
+
 async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("ai_history", None)
     await update.message.reply_text("تم مسح سياق المحادثة.", reply_markup=main_keyboard())
@@ -458,6 +516,10 @@ def main():
     app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("اختر السوق:", reply_markup=markets_keyboard())))
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
+    app.add_handler(CommandHandler("status", auto_status_command))
+    app.add_handler(CommandHandler("trades", auto_trades_command))
+    app.add_handler(CommandHandler("stop", stop_auto_command))
     app.add_handler(CommandHandler("reset", reset_chat))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
