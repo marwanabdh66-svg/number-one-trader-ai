@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes, filters
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset
+from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -63,10 +64,12 @@ def save_signal(chat_id, result):
 
 def main_keyboard():
     rows = [
-        [InlineKeyboardButton("📊 تحليل الأسواق", callback_data="markets"),
-         InlineKeyboardButton("📡 الإشارات", callback_data="signals")],
-        [InlineKeyboardButton("🔎 تحليل أصل محدد", callback_data="markets"),
+        [InlineKeyboardButton("🤖 التداول الآلي التجريبي", callback_data="auto"),
+         InlineKeyboardButton("📊 تحليل الأسواق", callback_data="markets")],
+        [InlineKeyboardButton("📡 الإشارات", callback_data="signals"),
          InlineKeyboardButton("🧭 الفحص السريع", callback_data="quickscan")],
+        [InlineKeyboardButton("🔎 تحليل أصل محدد", callback_data="markets"),
+         InlineKeyboardButton("📈 حالة التداول الآلي", callback_data="auto_status")],
         [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
          InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
         [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
@@ -193,7 +196,59 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     data = q.data or ""
-    if data == "home":
+    if data == "auto":
+        context.user_data["auto_setup"] = {}
+        await q.edit_message_text(
+            "🤖 إعداد التداول الآلي التجريبي\\n\\nاختر مدة تشغيل النظام. سيعمل على الخادم حتى لو أغلقت شاشة هاتفك. هذه نسخة محاكاة ولا ترسل أوامر بأموال حقيقية.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("ساعة", callback_data="auto_duration:1"),
+                 InlineKeyboardButton("3 ساعات", callback_data="auto_duration:3")],
+                [InlineKeyboardButton("6 ساعات", callback_data="auto_duration:6"),
+                 InlineKeyboardButton("12 ساعة", callback_data="auto_duration:12")],
+                [InlineKeyboardButton("24 ساعة", callback_data="auto_duration:24")],
+                [InlineKeyboardButton("⬅️ الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data.startswith("auto_duration:"):
+        duration = int(data.split(":")[1])
+        context.user_data.setdefault("auto_setup", {})["duration"] = duration
+        await q.edit_message_text(
+            "اختر مستوى المخاطرة الافتراضي لكل صفقة:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("محافظ 0.5%", callback_data="auto_risk:0.5"),
+                 InlineKeyboardButton("متوازن 1%", callback_data="auto_risk:1.0")]
+            ])
+        )
+    elif data.startswith("auto_risk:"):
+        risk = float(data.split(":")[1])
+        context.user_data.setdefault("auto_setup", {})["risk"] = risk
+        await q.edit_message_text(
+            "اختر الحد الأقصى للخسارة اليومية في المحاكاة:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("2%", callback_data="auto_daily:2"),
+                 InlineKeyboardButton("3%", callback_data="auto_daily:3"),
+                 InlineKeyboardButton("5%", callback_data="auto_daily:5")]
+            ])
+        )
+    elif data.startswith("auto_daily:"):
+        daily = float(data.split(":")[1])
+        context.user_data.setdefault("auto_setup", {})["daily"] = daily
+        context.user_data["awaiting_auto_capital"] = True
+        await q.edit_message_text(
+            f"إعداداتك: مدة {context.user_data['auto_setup']['duration']} ساعة، مخاطرة {context.user_data['auto_setup']['risk']}%، حد خسارة يومية {daily}%.\\n\\nأرسل الآن مبلغ رأس المال الافتراضي بالأرقام فقط، مثلاً 100."
+        )
+    elif data == "auto_status":
+        await q.edit_message_text(format_status(q.message.chat_id), reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏹️ إيقاف التداول الآلي", callback_data="auto_stop")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+        ]))
+    elif data == "auto_stop":
+        stopped = stop_session(q.message.chat_id)
+        await q.edit_message_text(
+            "تم إيقاف فتح صفقات جديدة في المحاكاة." if stopped else "لا توجد جلسة نشطة لإيقافها.",
+            reply_markup=main_keyboard()
+        )
+    elif data == "home":
         await q.edit_message_text(HELP_TEXT, reply_markup=main_keyboard())
     elif data == "markets":
         await q.edit_message_text("🌐 اختر السوق الذي تريد تحليله:", reply_markup=markets_keyboard())
@@ -276,6 +331,31 @@ async def ask_openai(history):
     )
     return response.output_text
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    if context.user_data.get("awaiting_auto_capital"):
+        raw = update.message.text.strip().replace(",", "")
+        try:
+            capital = float(raw)
+            setup = context.user_data.get("auto_setup", {})
+            start_session(update.effective_chat.id, capital, setup["duration"], setup["risk"], setup["daily"])
+            context.user_data["awaiting_auto_capital"] = False
+            context.user_data.pop("auto_setup", None)
+            await update.message.reply_text(
+                "🟢 بدأ التداول الآلي التجريبي على الخادم. يمكنك إغلاق شاشة الهاتف.\\n"
+                f"الرصيد الافتراضي: {capital:.2f}\\n"
+                "الأسواق الحالية: العملات الرقمية فقط\\n"
+                "النظام يفتح صفقة تجريبية واحدة كحد أقصى، ويوقف الجلسة عند بلوغ حد الخسارة اليومية.\\n"
+                "استخدم زر حالة التداول لمتابعة النتائج أو إيقاف الجلسة. لا توجد أموال حقيقية مستخدمة.",
+                reply_markup=main_keyboard()
+            )
+        except (ValueError, KeyError):
+            await update.message.reply_text("أرسل مبلغاً رقمياً أكبر من صفر، مثل 100.")
+        return
+    await chat_with_ai(update, context)
+
+
 async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -343,11 +423,31 @@ async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("ai_history", None)
     await update.message.reply_text("تم مسح سياق المحادثة.", reply_markup=main_keyboard())
 
+async def auto_trading_worker(app):
+    init_auto_db()
+    while True:
+        try:
+            notices = await asyncio.to_thread(run_cycle)
+            for chat_id, message in notices:
+                try:
+                    await app.bot.send_message(chat_id=chat_id, text=message)
+                except Exception as exc:
+                    print(f"Auto-trader notification failed: {type(exc).__name__}")
+        except Exception as exc:
+            print(f"Auto-trader cycle failed: {type(exc).__name__}")
+        await asyncio.sleep(60)
+
+
+async def post_init(app):
+    app.create_task(auto_trading_worker(app), name="auto-trading-worker")
+
+
 def main():
     if not TOKEN:
         raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري في خدمة الاستضافة.")
     init_db()
-    app = Application.builder().token(TOKEN).build()
+    init_auto_db()
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("اختر السوق:", reply_markup=markets_keyboard())))
@@ -355,7 +455,7 @@ def main():
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("reset", reset_chat))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_ai))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("NUMBER ONE TRADER AI Telegram bot is running.")
     print("AI assistant enabled." if client else "AI assistant disabled: OPENAI_API_KEY missing.")
     app.run_polling()
