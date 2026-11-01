@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -28,11 +29,19 @@ def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+@contextmanager
 def _db():
     con = sqlite3.connect(DB_PATH, timeout=30)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
 
 
 def init_auto_db() -> None:
@@ -96,11 +105,33 @@ def start_session(chat_id: int, capital: float, duration_hours: int, risk_pct: f
              _iso(now + timedelta(hours=duration_hours)), day_key, capital, _iso(now)))
         
 
+def _close_open_positions(chat_id: int, reason: str) -> list[str]:
+    messages = []
+    with _db() as con:
+        trades = con.execute("SELECT * FROM auto_trades WHERE chat_id=? AND status='open'", (chat_id,)).fetchall()
+    for trade in trades:
+        price = float(trade["entry"])
+        try:
+            frame, _ = fetch_market_data(trade["symbol"], "1 دقيقة")
+            if not frame.empty:
+                price = float(frame.iloc[-1]["close"])
+        except Exception:
+            pass
+        with _db() as con:
+            messages.append(_close_trade(con, trade, price, reason))
+    return messages
+
+
 def stop_session(chat_id: int) -> bool:
     with _db() as con:
-        cur = con.execute("UPDATE auto_sessions SET status='stopped',updated_at=? WHERE chat_id=? AND status='running'",
-                          (_iso(_now()), chat_id))
-        return cur.rowcount > 0
+        row = con.execute("SELECT status FROM auto_sessions WHERE chat_id=?", (chat_id,)).fetchone()
+    if not row or row["status"] != "running":
+        return False
+    _close_open_positions(chat_id, "إغلاق عند إيقاف الجلسة")
+    with _db() as con:
+        con.execute("UPDATE auto_sessions SET status='stopped',updated_at=? WHERE chat_id=? AND status='running'",
+                    (_iso(_now()), chat_id))
+    return True
 
 
 def get_session(chat_id: int) -> dict[str, Any] | None:
@@ -148,10 +179,11 @@ def run_cycle() -> list[tuple[int, str]]:
         chat_id = session["chat_id"]
         ends_at = datetime.fromisoformat(session["ends_at"])
         if now >= ends_at:
+            _close_open_positions(chat_id, "إغلاق عند انتهاء المدة")
             with _db() as con:
                 con.execute("UPDATE auto_sessions SET status='stopped',updated_at=? WHERE chat_id=?",
                             (_iso(now), chat_id))
-            notices.append((chat_id, "⏱️ انتهت مدة التداول التجريبي. توقف فتح صفقات جديدة. راجع سجل النتائج من البوت."))
+            notices.append((chat_id, "⏱️ انتهت مدة التداول التجريبي. أُغلقت الصفقات الافتراضية المتبقية وفق آخر سعر متاح، وتوقف النظام. راجع حالة التداول لمعرفة النتيجة."))
             continue
 
         day_key = now.date().isoformat()
@@ -198,7 +230,8 @@ def run_cycle() -> list[tuple[int, str]]:
         daily_floor = current["day_start_balance"] * (1 - current["max_daily_loss_pct"] / 100)
         if current["balance"] <= daily_floor:
             stop_session(chat_id)
-            notices.append((chat_id, "🛑 تم إيقاف التداول التجريبي تلقائياً بعد بلوغ حد الخسارة اليومية المحدد (3%)."))
+            _close_open_positions(chat_id, "إغلاق حماية عند حد الخسارة اليومية")
+            notices.append((chat_id, f"🛑 تم إيقاف التداول التجريبي تلقائياً بعد بلوغ حد الخسارة اليومية المحدد ({current['max_daily_loss_pct']}%)."))
             continue
 
         last_scan = current.get("last_scan")
