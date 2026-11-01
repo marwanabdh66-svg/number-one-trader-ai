@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
+from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_enabled, scan_signal_watchers
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -303,14 +304,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ("analyze", "reanalyze"):
         await analyze_selected(update, context, q)
     elif data == "signals":
+        enabled = signal_watch_enabled(q.message.chat_id)
+        state = "🟢 المراقبة التلقائية مفعّلة" if enabled else "⚪ المراقبة التلقائية متوقفة"
         await q.edit_message_text(
-            "📡 مركز الإشارات\n\nاختر أصلاً وفاصلاً زمنياً للحصول على قراءة فنية محدثة. "
-            "لا يتم إرسال إشارات تلقائية في الخلفية حالياً.",
+            "📡 مركز الإشارات\n\n" + state + "\nيراقب البوت العملات الرقمية كل 5 دقائق تقريباً ويرسل الإشارات الفنية القوية، مع تقليل تكرار التنبيهات.\n\nيمكنك أيضاً تحليل أي أصل يدوياً من القائمة.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔎 اختر أصلاً للتحليل", callback_data="markets")],
+                [InlineKeyboardButton("⏸️ إيقاف الإشارات التلقائية" if enabled else "▶️ تفعيل الإشارات التلقائية", callback_data="signals_toggle")],
+                [InlineKeyboardButton("🔎 تحليل أصل الآن", callback_data="markets")],
                 [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
             ])
         )
+    elif data == "signals_toggle":
+        enabled = not signal_watch_enabled(q.message.chat_id)
+        set_signal_watch(q.message.chat_id, enabled)
+        state = "🟢 تم تفعيل المراقبة التلقائية. ستصلك الإشارات القوية عند توفرها." if enabled else "⏸️ تم إيقاف الإشارات التلقائية."
+        await q.edit_message_text(state, reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📡 مركز الإشارات", callback_data="signals")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+        ]))
     elif data == "quickscan":
         await q.edit_message_text(
             "🧭 الفحص السريع\nاختر السوق أولاً، ثم الأصل والفاصل الزمني. "
@@ -491,7 +502,8 @@ async def auto_trading_worker(app):
     while True:
         try:
             notices = await asyncio.to_thread(run_cycle)
-            for chat_id, message in notices:
+            signal_notices = await asyncio.to_thread(scan_signal_watchers)
+            for chat_id, message in notices + signal_notices:
                 try:
                     await app.bot.send_message(chat_id=chat_id, text=message)
                 except Exception as exc:
@@ -510,6 +522,7 @@ def main():
         raise RuntimeError("يجب ضبط TELEGRAM_BOT_TOKEN كمتغير سري في خدمة الاستضافة.")
     init_db()
     init_auto_db()
+    init_signal_monitor()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
