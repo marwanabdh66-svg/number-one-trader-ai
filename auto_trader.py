@@ -311,3 +311,15 @@ def format_status(chat_id: int) -> str:
             f"المخاطرة لكل صفقة: {data['risk_pct']}%\n"
             f"الوقت المتبقي: {hours} ساعة و{minutes} دقيقة\n"
             "⚠️ محاكاة فقط؛ لا توجد أموال حقيقية أو أوامر إلى وسيط تداول.")
+
+
+
+def get_trade_history(chat_id: int, limit: int = 10) -> list[dict[str, Any]]:
+    """Return the latest simulated trades for one Telegram chat."""
+    safe_limit = max(1, min(int(limit), 25))
+    with _db() as con:
+        rows = con.execute(
+            "SELECT * FROM auto_trades WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+            (chat_id, safe_limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
