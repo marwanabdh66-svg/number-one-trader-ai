@@ -149,6 +149,12 @@ def get_session(chat_id: int) -> dict[str, Any] | None:
         result["realized_pnl"] = con.execute(
             "SELECT COALESCE(SUM(pnl),0) FROM auto_trades WHERE chat_id=? AND status='closed'", (chat_id,)
         ).fetchone()[0]
+        utc_day_start = _now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        result["daily_realized_pnl"] = con.execute(
+            "SELECT COALESCE(SUM(pnl),0) FROM auto_trades "
+            "WHERE chat_id=? AND status='closed' AND closed_at>=?",
+            (chat_id, utc_day_start)
+        ).fetchone()[0]
         return result
 
 
@@ -197,6 +203,7 @@ def run_cycle() -> list[tuple[int, str]]:
             open_trades = con.execute(
                 "SELECT * FROM auto_trades WHERE chat_id=? AND status='open'", (chat_id,)
             ).fetchall()
+        unrealized_pnl = 0.0
         for trade in open_trades:
             try:
                 frame, _ = fetch_market_data(trade["symbol"], "1 دقيقة")
@@ -220,18 +227,30 @@ def run_cycle() -> list[tuple[int, str]]:
                     with _db() as con:
                         msg = _close_trade(con, trade, exit_price, reason)
                     notices.append((chat_id, msg))
+                else:
+                    floating = (close - float(trade["entry"])) * float(trade["quantity"])
+                    if trade["direction"] == "هبوط":
+                        floating = -floating
+                    unrealized_pnl += floating - (
+                        float(trade["notional"]) + abs(close * float(trade["quantity"]))
+                    ) * FEE_RATE
             except Exception:
                 continue
 
-        # Daily loss circuit breaker: stop new entries and stop the session.
+        # Daily loss circuit breaker includes realized and floating losses.
         current = get_session(chat_id)
         if not current or current["status"] != "running":
             continue
         daily_floor = current["day_start_balance"] * (1 - current["max_daily_loss_pct"] / 100)
-        if current["balance"] <= daily_floor:
-            stop_session(chat_id)
+        daily_equity = float(current["balance"]) + unrealized_pnl
+        if daily_equity <= daily_floor:
             _close_open_positions(chat_id, "إغلاق حماية عند حد الخسارة اليومية")
-            notices.append((chat_id, f"🛑 تم إيقاف التداول التجريبي تلقائياً بعد بلوغ حد الخسارة اليومية المحدد ({current['max_daily_loss_pct']}%)."))
+            with _db() as con:
+                con.execute("UPDATE auto_sessions SET status='stopped',updated_at=? WHERE chat_id=? AND status='running'",
+                            (_iso(_now()), chat_id))
+            notices.append((chat_id,
+                f"🛑 أوقف حارس رأس المال المحاكاة تلقائياً بعد بلوغ حد الخسارة اليومية "
+                f"({current['max_daily_loss_pct']}%). لن تُفتح صفقات جديدة في هذه الجلسة."))
             continue
 
         last_scan = current.get("last_scan")
@@ -309,7 +328,10 @@ def format_status(chat_id: int) -> str:
             f"النتيجة المحققة: {data['realized_pnl']:+.2f}\n"
             f"صفقات مفتوحة: {data['open_trades']} | مغلقة: {data['closed_trades']}\n"
             f"المخاطرة لكل صفقة: {data['risk_pct']}%\n"
+            f"حد الخسارة اليومية: {data['max_daily_loss_pct']}%\n"
+            f"نتيجة اليوم المحققة: {data['daily_realized_pnl']:+.2f}\n"
             f"الوقت المتبقي: {hours} ساعة و{minutes} دقيقة\n"
+            "🛡️ الحماية تراقب الخسائر المحققة والعائمة عند توفر بيانات السعر.\n"
             "⚠️ محاكاة فقط؛ لا توجد أموال حقيقية أو أوامر إلى وسيط تداول.")
 
 
