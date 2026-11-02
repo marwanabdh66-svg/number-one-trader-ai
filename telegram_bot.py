@@ -77,12 +77,8 @@ def save_signal(chat_id, result):
 
 def main_keyboard():
     rows = [
-        [InlineKeyboardButton("🤖 التداول الآلي التجريبي", callback_data="auto"),
-         InlineKeyboardButton("📊 تحليل الأسواق", callback_data="markets")],
-        [InlineKeyboardButton("📡 الإشارات", callback_data="signals"),
-         InlineKeyboardButton("🧭 الفحص السريع", callback_data="quickscan")],
-        [InlineKeyboardButton("🔎 تحليل أصل محدد", callback_data="markets"),
-         InlineKeyboardButton("📈 حالة التداول الآلي", callback_data="auto_status")],
+        [InlineKeyboardButton("🤖 محاكاة تداول تجريبية فقط", callback_data="auto"),
+         InlineKeyboardButton("📈 حالة المحاكاة", callback_data="auto_status")],
         [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
          InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
         [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC", callback_data="guide")],
@@ -154,7 +150,7 @@ async def send_long(message, text):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("timeframe", "5 دقائق")
     ensure_user(update.effective_chat.id)
-    await update.message.reply_text(HELP_TEXT + "\\n\\n" + subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
+    await update.message.reply_text(HELP_TEXT + "\n\n" + subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -216,7 +212,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "auto":
         context.user_data["auto_setup"] = {}
         await q.edit_message_text(
-            "🤖 إعداد التداول الآلي التجريبي\\n\\nاختر مدة تشغيل النظام. سيعمل على الخادم حتى لو أغلقت شاشة هاتفك. هذه نسخة محاكاة ولا ترسل أوامر بأموال حقيقية.",
+            "🤖 إعداد التداول الآلي التجريبي\n\nاختر مدة تشغيل النظام. سيعمل على الخادم حتى لو أغلقت شاشة هاتفك. هذه نسخة محاكاة ولا ترسل أوامر بأموال حقيقية.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("ساعة", callback_data="auto_duration:1"),
                  InlineKeyboardButton("3 ساعات", callback_data="auto_duration:3")],
@@ -252,7 +248,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.setdefault("auto_setup", {})["daily"] = daily
         context.user_data["awaiting_auto_capital"] = True
         await q.edit_message_text(
-            f"إعداداتك: مدة {context.user_data['auto_setup']['duration']} ساعة، مخاطرة {context.user_data['auto_setup']['risk']}%، حد خسارة يومية {daily}%.\\n\\nأرسل الآن مبلغ رأس المال الافتراضي بالأرقام فقط، مثلاً 100."
+            f"إعداداتك: مدة {context.user_data['auto_setup']['duration']} ساعة، مخاطرة {context.user_data['auto_setup']['risk']}%، حد خسارة يومية {daily}%.\n\nأرسل الآن مبلغ رأس المال الافتراضي بالأرقام فقط، مثلاً 100."
         )
     elif data == "auto_status":
         await q.edit_message_text(format_status(q.message.chat_id), reply_markup=InlineKeyboardMarkup([
@@ -282,62 +278,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "home":
         await q.edit_message_text(HELP_TEXT, reply_markup=main_keyboard())
-    elif data == "markets":
-        await q.edit_message_text("🌐 اختر السوق الذي تريد تحليله:", reply_markup=markets_keyboard())
-    elif data.startswith("market:"):
-        mi = int(data.split(":")[1])
-        context.user_data["market_index"] = mi
-        market = list(ASSETS.keys())[mi]
-        await q.edit_message_text(f"اختر الأصل من سوق {market}:", reply_markup=assets_keyboard(mi))
-    elif data.startswith("asset:"):
-        _, mi, ai = data.split(":")
-        market = list(ASSETS.keys())[int(mi)]
-        name, symbol = list(ASSETS[market].items())[int(ai)]
-        context.user_data["asset"] = (name, symbol, market)
+    elif data == "markets" or data.startswith(("market:", "asset:", "tf:")):
         await q.edit_message_text(
-            f"تم اختيار {name} ({symbol}).\nاختر الفاصل الزمني:",
-            reply_markup=timeframe_keyboard()
-        )
-    elif data.startswith("tf:"):
-        idx = int(data.split(":")[1])
-        label = list(TIMEFRAMES.keys())[idx]
-        context.user_data["timeframe"] = label
-        await q.edit_message_text(
-            f"تم اختيار الفاصل: {label}\nهل تريد بدء التحليل؟",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚀 ابدأ التحليل الآن", callback_data="analyze")],
-                [InlineKeyboardButton("⏱️ تغيير الفاصل", callback_data="change_tf"),
-                 InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
-            ])
+            "تم تخصيص الدليل الإرشادي لبيانات Pocket Option OTC فقط. أرسل مثلاً: AED/CNY OTC 5m. "
+            "لن يتم تحليل بيانات Binance أو Yahoo ضمن هذا المسار.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
         )
     elif data == "change_tf":
         await q.edit_message_text("اختر الفاصل الزمني:", reply_markup=timeframe_keyboard())
     elif data in ("analyze", "reanalyze"):
-        await analyze_selected(update, context, q)
-    elif data == "signals":
-        enabled = signal_watch_enabled(q.message.chat_id)
-        state = "🟢 المراقبة التلقائية مفعّلة" if enabled else "⚪ المراقبة التلقائية متوقفة"
+        await q.edit_message_text("لتحليل Pocket Option OTC أرسل الزوج نصياً، مثال: AED/CNY OTC 5m.", reply_markup=main_keyboard())
+    elif data in ("signals", "signals_toggle", "quickscan"):
         await q.edit_message_text(
-            "📡 مركز الإشارات\n\n" + state + "\nيراقب البوت العملات الرقمية كل 5 دقائق تقريباً ويرسل الإشارات الفنية القوية، مع تقليل تكرار التنبيهات.\n\nيمكنك أيضاً تحليل أي أصل يدوياً من القائمة.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⏸️ إيقاف الإشارات التلقائية" if enabled else "▶️ تفعيل الإشارات التلقائية", callback_data="signals_toggle")],
-                [InlineKeyboardButton("🔎 تحليل أصل الآن", callback_data="markets")],
-                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
-            ])
-        )
-    elif data == "signals_toggle":
-        enabled = not signal_watch_enabled(q.message.chat_id)
-        set_signal_watch(q.message.chat_id, enabled)
-        state = "🟢 تم تفعيل المراقبة التلقائية. ستصلك الإشارات القوية عند توفرها." if enabled else "⏸️ تم إيقاف الإشارات التلقائية."
-        await q.edit_message_text(state, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📡 مركز الإشارات", callback_data="signals")],
-            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
-        ]))
-    elif data == "quickscan":
-        await q.edit_message_text(
-            "🧭 الفحص السريع\nاختر السوق أولاً، ثم الأصل والفاصل الزمني. "
-            "الفحص الشامل المجدول سيضاف بعد تجهيز خدمة التشغيل المستمر.",
-            reply_markup=markets_keyboard()
+            "مركز الإشارات المخصص حالياً هو الدليل الإرشادي لـ Pocket Option OTC. أرسل الزوج مع OTC، مثال AED/CNY OTC 5m.",
+            reply_markup=main_keyboard()
         )
     elif data == "history":
         await show_history(q.message.chat_id, q.message)
@@ -352,12 +306,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "guide":
         await q.edit_message_text(
-            "🧭 الدليل الإرشادي الذكي — Pocket Option OTC فقط\\n\\n"
-            "أرسل الزوج بهذه الصيغة: AED/CNY OTC 5m\\n"
-            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\\n\\n"
+            "🧭 الدليل الإرشادي الذكي — Pocket Option OTC فقط\n\n"
+            "أرسل الزوج بهذه الصيغة: AED/CNY OTC 5m\n"
+            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n\n"
             "المصدر الوحيد هنا هو شموع Pocket Option OTC عبر OTCharts. "
             "لن أستخدم Binance أو Yahoo أو أسعار الفوركس العادية بديلاً عنها. "
-            "إذا تعذر مصدر OTC فلن يصدر البوت سهماً.\\n\\n"
+            "إذا تعذر مصدر OTC فلن يصدر البوت سهماً.\n\n"
             + subscription_message(q.message.chat_id),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro")],
@@ -418,25 +372,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_auto_capital"):
         raw_text = update.message.text.strip().upper()
         import re
-        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\\s*[/\\-]\\s*([A-Z0-9]{2,10})\\s+OTC(?:\\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
+        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
         if pair_match:
             base, quote, requested_tf = pair_match.groups()
             pair = f"{base}/{quote}"
             status = access_status(update.effective_chat.id)
             if not status["allowed"]:
                 await update.message.reply_text(
-                    subscription_message(update.effective_chat.id) + "\\n\\nاكتب /pro لطلب الاشتراك. "
+                    subscription_message(update.effective_chat.id) + "\n\nاكتب /pro لطلب الاشتراك. "
                     "لن يتم استخدام أي مصدر سوق عادي بدلاً من بيانات OTC.",
                     reply_markup=main_keyboard()
                 )
                 return
             if not consume_trial_use(update.effective_chat.id):
-                await update.message.reply_text(subscription_message(update.effective_chat.id) + "\\nاكتب /pro لتفعيل PRO.")
+                await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لتفعيل PRO.")
                 return
             otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
             if not otc_symbol:
                 await update.message.reply_text(
-                    f"⚠️ لم أتمكن من جلب رمز {pair} من كتالوج Pocket Option OTC.\\n"
+                    f"⚠️ لم أتمكن من جلب رمز {pair} من كتالوج Pocket Option OTC.\n"
                     "قد يكون الرمز غير مدعوم في باقة OTCharts أو أن المفتاح/الحصة غير متاحين. "
                     "لن أستخدم أسعار Forex أو Binance كبديل ولن أخمّن رمزاً.",
                     reply_markup=main_keyboard()
@@ -460,7 +414,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_signal(update.effective_chat.id, result)
             await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
             return
-        if re.fullmatch(r"[A-Z0-9]{2,10}\\s*[/\\-]\\s*[A-Z0-9]{2,10}(?:\\s+(?:1M|5M|15M|30M|1H|4H))?", raw_text):
+        if re.fullmatch(r"[A-Z0-9]{2,10}\s*[/\-]\s*[A-Z0-9]{2,10}(?:\s+(?:1M|5M|15M|30M|1H|4H))?", raw_text):
             await update.message.reply_text(
                 "للدليل الإرشادي أرسل الزوج مع OTC صراحةً، مثال: AED/CNY OTC 5m. "
                 "لن أحلل الزوج من سوق عادي.",
@@ -476,10 +430,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting_auto_capital"] = False
             context.user_data.pop("auto_setup", None)
             await update.message.reply_text(
-                "🟢 بدأ التداول الآلي التجريبي على الخادم. يمكنك إغلاق شاشة الهاتف.\\n"
-                f"الرصيد الافتراضي: {capital:.2f}\\n"
-                "الأسواق الحالية: العملات الرقمية فقط\\n"
-                "النظام يفتح صفقة تجريبية واحدة كحد أقصى، ويوقف الجلسة عند بلوغ حد الخسارة اليومية.\\n"
+                "🟢 بدأ التداول الآلي التجريبي على الخادم. يمكنك إغلاق شاشة الهاتف.\n"
+                f"الرصيد الافتراضي: {capital:.2f}\n"
+                "الأسواق الحالية: العملات الرقمية فقط\n"
+                "النظام يفتح صفقة تجريبية واحدة كحد أقصى، ويوقف الجلسة عند بلوغ حد الخسارة اليومية.\n"
                 "استخدم زر حالة التداول لمتابعة النتائج أو إيقاف الجلسة. لا توجد أموال حقيقية مستخدمة.",
                 reply_markup=main_keyboard()
             )
@@ -523,14 +477,14 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = " ".join(context.args).upper().strip()
     import re
-    match = re.fullmatch(r"([A-Z0-9]{2,10})\\s*[/\\-]\\s*([A-Z0-9]{2,10})\\s+OTC(?:\\s+(1M|5M|15M|30M|1H|4H))?", raw)
+    match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H|4H))?", raw)
     if not match:
         await update.message.reply_text("الاستخدام: /analyze AED/CNY OTC 5m — يقبل الدليل أزواج Pocket Option OTC فقط.")
         return
     base, quote, requested_tf = match.groups()
     status = access_status(update.effective_chat.id)
     if not status["allowed"] or not consume_trial_use(update.effective_chat.id):
-        await update.message.reply_text(subscription_message(update.effective_chat.id) + "\\nاكتب /pro لطلب PRO.")
+        await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لطلب PRO.")
         return
     pair = f"{base}/{quote}"
     symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
@@ -637,10 +591,10 @@ async def payment_photo_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     user = update.effective_user
     caption = (
-        "📥 إثبات دفع اشتراك PRO\\n"
-        f"المستخدم: {user.full_name}\\n"
-        f"Telegram ID: {update.effective_chat.id}\\n"
-        f"Username: @{user.username or 'غير متاح'}\\n"
+        "📥 إثبات دفع اشتراك PRO\n"
+        f"المستخدم: {user.full_name}\n"
+        f"Telegram ID: {update.effective_chat.id}\n"
+        f"Username: @{user.username or 'غير متاح'}\n"
         "راجع التحويل ثم فعّل الاشتراك بالأمر: /activate TELEGRAM_ID 30"
     )
     try:
