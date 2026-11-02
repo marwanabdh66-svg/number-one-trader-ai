@@ -155,8 +155,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 دليل NUMBER ONE TRADER AI\n\n"
-        "1) اختر السوق.\n2) اختر الأصل.\n3) اختر الفاصل الزمني.\n"
-        "4) اطلب التحليل لعرض الاتجاه ومستويات الدخول والوقف والهدف.\n\n"
+        "1) أرسل زوج Pocket Option OTC مع كلمة OTC، مثال AED/CNY OTC 5m.\n"
+        "2) الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n"
+        "3) لن يصدر البوت سهماً دون بيانات OTC وإعادة اختبار POC وشمعة تأكيد.\n\n"
         "الأوامر: /start /markets /analyze /history /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
@@ -212,7 +213,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "auto":
         context.user_data["auto_setup"] = {}
         await q.edit_message_text(
-            "🤖 إعداد التداول الآلي التجريبي\n\nاختر مدة تشغيل النظام. سيعمل على الخادم حتى لو أغلقت شاشة هاتفك. هذه نسخة محاكاة ولا ترسل أوامر بأموال حقيقية.",
+            "🤖 إعداد المحاكاة التعليمية\n\nهذه محاكاة افتراضية منفصلة تستخدم بيانات العملات الرقمية العامة، وليست Pocket Option OTC ولا تتصل بحسابك ولا ترسل أوامر بأموال حقيقية. اختر مدة تشغيل المحاكاة.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("ساعة", callback_data="auto_duration:1"),
                  InlineKeyboardButton("3 ساعات", callback_data="auto_duration:3")],
@@ -285,7 +286,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
         )
     elif data == "change_tf":
-        await q.edit_message_text("اختر الفاصل الزمني:", reply_markup=timeframe_keyboard())
+        await q.edit_message_text("حدد الفاصل في رسالة الدليل، مثال: AED/CNY OTC 5m.", reply_markup=main_keyboard())
     elif data in ("analyze", "reanalyze"):
         await q.edit_message_text("لتحليل Pocket Option OTC أرسل الزوج نصياً، مثال: AED/CNY OTC 5m.", reply_markup=main_keyboard())
     elif data in ("signals", "signals_toggle", "quickscan"):
@@ -296,13 +297,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "history":
         await show_history(q.message.chat_id, q.message)
     elif data == "settings":
-        current = context.user_data.get("timeframe", "5 دقائق")
         await q.edit_message_text(
-            f"⚙️ إعداداتك الحالية\nالفاصل الافتراضي: {current}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⏱️ تغيير الفاصل الافتراضي", callback_data="change_tf")],
-                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
-            ])
+            "⚙️ الإعدادات\nاكتب الفاصل الزمني مباشرة مع زوج OTC، مثال: AED/CNY OTC 1m أو AED/CNY OTC 5m.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
         )
     elif data == "guide":
         await q.edit_message_text(
@@ -622,8 +619,9 @@ async def auto_trading_worker(app):
     while True:
         try:
             notices = await asyncio.to_thread(run_cycle)
-            signal_notices = await asyncio.to_thread(scan_signal_watchers)
-            for chat_id, message in notices + signal_notices:
+            # The legacy crypto signal watcher is intentionally not scanned here:
+            # the primary signal product is Pocket Option OTC only.
+            for chat_id, message in notices:
                 try:
                     await app.bot.send_message(chat_id=chat_id, text=message)
                 except Exception as exc:
