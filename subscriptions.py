@@ -39,8 +39,12 @@ def init_subscriptions():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id INTEGER NOT NULL,
         created_at TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending'
+        status TEXT NOT NULL DEFAULT 'pending',
+        payment_method TEXT
     )""")
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(pro_requests)").fetchall()}
+    if "payment_method" not in columns:
+        con.execute("ALTER TABLE pro_requests ADD COLUMN payment_method TEXT")
     con.commit()
     con.close()
 
@@ -94,10 +98,12 @@ def consume_trial_use(chat_id: int) -> bool:
     con.close()
     return True
 
-def create_pro_request(chat_id: int) -> int:
+def create_pro_request(chat_id: int, payment_method: str = "manual") -> int:
+    if payment_method not in {"jawali", "jaib"}:
+        payment_method = "manual"
     con = _db()
-    cur = con.execute("INSERT INTO pro_requests(chat_id,created_at,status) VALUES(?,?, 'pending')",
-                      (chat_id, _now().isoformat()))
+    cur = con.execute("INSERT INTO pro_requests(chat_id,created_at,status,payment_method) VALUES(?,?, 'pending',?)",
+                      (chat_id, _now().isoformat(), payment_method))
     request_id = int(cur.lastrowid)
     con.commit()
     con.close()
