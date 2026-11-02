@@ -349,7 +349,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "أرسل زوج التداول في رسالة واحدة بهذا الشكل:\n"
             "AED/CNY OTC 5m\n\n"
             "ويمكنك تغيير الزوج والفاصل الزمني. الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n\n"
-            "سيحلل البوت بيانات السوق المتاحة ويعرض الاتجاه صعوداً أو هبوطاً، أو يخبرك إذا لم تتوفر بيانات كافية.\n"
+            "للتدريب على العملات الرقمية أرسل مثلاً BTC/USDT أو ETH/USDT 5m.\n" +
+            "هذه بيانات سوق Binance العامة وليست أسعار Pocket Option OTC.\n" +
+            "سيعرض البوت الاتجاه فقط عند توفر بيانات كافية، وإلا سيخبرك بعدم وجود إشارة.\n"
             "ملاحظة: تحليل أزواج OTC يتطلب تفعيل مصدر بيانات OTC ومفتاحه في إعدادات الاستضافة.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📊 تحليل الأسواق العادية", callback_data="markets")],
@@ -388,7 +390,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_auto_capital"):
         raw_text = update.message.text.strip().upper()
         import re
-        pair_match = re.fullmatch(r"([A-Z]{3})\s*[/\-]\s*([A-Z]{3})(?:\s+(OTC))?(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
+        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})(?:\s+(OTC))?(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
         if pair_match:
             base, quote, otc, requested_tf = pair_match.groups()
             pair = f"{base}/{quote}"
