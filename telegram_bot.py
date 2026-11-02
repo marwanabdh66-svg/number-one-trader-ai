@@ -156,7 +156,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 دليل NUMBER ONE TRADER AI\n\n"
         "1) أرسل زوج Pocket Option OTC مع كلمة OTC، مثال AED/CNY OTC 5m.\n"
-        "2) الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n"
+        "2) الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h.\n"
         "3) لن يصدر البوت سهماً دون بيانات OTC وإعادة اختبار POC وشمعة تأكيد.\n\n"
         "الأوامر: /start /markets /analyze /history /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
@@ -305,7 +305,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "🧭 الدليل الإرشادي الذكي — Pocket Option OTC فقط\n\n"
             "أرسل الزوج بهذه الصيغة: AED/CNY OTC 5m\n"
-            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n\n"
+            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h.\n\n"
             "المصدر الوحيد هنا هو شموع Pocket Option OTC عبر OTCharts. "
             "لن أستخدم Binance أو Yahoo أو أسعار الفوركس العادية بديلاً عنها. "
             "إذا تعذر مصدر OTC فلن يصدر البوت سهماً.\n\n"
@@ -369,7 +369,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_auto_capital"):
         raw_text = update.message.text.strip().upper()
         import re
-        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
+        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H))?", raw_text)
         if pair_match:
             base, quote, requested_tf = pair_match.groups()
             pair = f"{base}/{quote}"
@@ -411,7 +411,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_signal(update.effective_chat.id, result)
             await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
             return
-        if re.fullmatch(r"[A-Z0-9]{2,10}\s*[/\-]\s*[A-Z0-9]{2,10}(?:\s+(?:1M|5M|15M|30M|1H|4H))?", raw_text):
+        if re.fullmatch(r"[A-Z0-9]{2,10}\s*[/\-]\s*[A-Z0-9]{2,10}(?:\s+(?:1M|5M|15M|30M|1H))?", raw_text):
             await update.message.reply_text(
                 "للدليل الإرشادي أرسل الزوج مع OTC صراحةً، مثال: AED/CNY OTC 5m. "
                 "لن أحلل الزوج من سوق عادي.",
@@ -474,7 +474,7 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = " ".join(context.args).upper().strip()
     import re
-    match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H|4H))?", raw)
+    match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H))?", raw)
     if not match:
         await update.message.reply_text("الاستخدام: /analyze AED/CNY OTC 5m — يقبل الدليل أزواج Pocket Option OTC فقط.")
         return
