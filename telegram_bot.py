@@ -10,7 +10,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-from engine import ASSETS, TIMEFRAMES, analyze_asset
+from engine import ASSETS, TIMEFRAMES, analyze_asset, resolve_otc_symbol
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
 from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_enabled, scan_signal_watchers
 
@@ -376,13 +376,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base, quote, otc, requested_tf = pair_match.groups()
             pair = f"{base}/{quote}"
             if otc:
-                await update.message.reply_text(
-                    f"⚠️ تم استلام الزوج {pair} OTC.\n"
-                    "الدليل الإرشادي الذكي يستقبل الزوج مباشرة، لكن بيانات OTC الخاصة بـ Pocket Option "
-                    "غير متاحة في مصدر البيانات الحالي؛ لذلك لن أخمّن صعوداً أو هبوطاً.\n"
-                    "أحتاج ربط مصدر بيانات OTC موثوق حتى أحلل هذا الزوج فعلياً.",
-                    reply_markup=main_keyboard()
-                )
+                otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
+                if not otc_symbol:
+                    await update.message.reply_text(
+                        f"⚠️ لم أتمكن من إيجاد {pair} OTC في فهرس المصدر.\n"
+                        "تأكد من ضبط OTCHARTS_API_KEY في متغيرات البيئة لدى EthioDeploy، "
+                        "ومن أن مفتاحك المجاني يسمح بالوصول لهذا الزوج.",
+                        reply_markup=main_keyboard()
+                    )
+                    return
+                found = (f"{pair} OTC", otc_symbol, "Pocket Option OTC")
+                timeframe_code = requested_tf.lower() if requested_tf else "5m"
+                label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), "5 دقائق")
+                await update.message.reply_text(f"⏳ تم ربط {pair} OTC بمصدر بيانات OTC. جارٍ التحليل على فاصل {label}...")
+                try:
+                    result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
+                except Exception:
+                    result = None
+                if not result:
+                    await update.message.reply_text(
+                        "وصلت إلى مصدر OTC لكن لم تتوفر شموع كافية أو إشارة واضحة. "
+                        "لن أُصدر توقعاً بلا بيانات كافية.",
+                        reply_markup=main_keyboard()
+                    )
+                    return
+                save_signal(update.effective_chat.id, result)
+                await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
                 return
 
             found = None
