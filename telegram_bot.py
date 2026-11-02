@@ -260,7 +260,7 @@ async def show_learning(chat_id, message):
         [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
     ])
     await message.reply_text(
-        "🎓 أكاديمية NUMBER ONE\\n\\nدروس قصيرة واختبارات تفاعلية في مهارات التداول. المحتوى تعليمي وليس توصية دخول.",
+        "🎓 أكاديمية NUMBER ONE\n\nدروس قصيرة واختبارات تفاعلية في مهارات التداول. المحتوى تعليمي وليس توصية دخول.",
         reply_markup=keyboard
     )
 
@@ -268,7 +268,7 @@ async def show_learning(chat_id, message):
 async def show_discipline(chat_id, message):
     rows = get_trades(chat_id, 5)
     if not rows:
-        text = "🛡️ حارس الانضباط\\n\\nلا توجد صفقات كافية في دفتر التداول لفحص سلوكك. سجّل نتائجك يدوياً ليظهر لك التنبيه."
+        text = "🛡️ حارس الانضباط\n\nلا توجد صفقات كافية في دفتر التداول لفحص سلوكك. سجّل نتائجك يدوياً ليظهر لك التنبيه."
     else:
         losses = sum(1 for row in rows if float(row["pnl"]) < 0)
         streak = 0
@@ -278,9 +278,9 @@ async def show_discipline(chat_id, message):
             else:
                 break
         text = (
-            "🛡️ حارس الانضباط — آخر خمس صفقات\\n\\n"
-            f"الخسائر ضمن آخر {len(rows)} صفقات: {losses}\\n"
-            f"الخسائر المتتالية من أحدث صفقة: {streak}\\n\\n"
+            "🛡️ حارس الانضباط — آخر خمس صفقات\n\n"
+            f"الخسائر ضمن آخر {len(rows)} صفقات: {losses}\n"
+            f"الخسائر المتتالية من أحدث صفقة: {streak}\n\n"
         )
         if streak >= 2:
             text += "⚠️ لديك خسارتان متتاليتان أو أكثر. خذ استراحة ولا ترفع حجم الصفقة للتعويض. راجع أسباب الدخول وحدود المخاطرة."
@@ -288,7 +288,7 @@ async def show_discipline(chat_id, message):
             text += "⚠️ تكررت الخسائر في سجلك الأخير. راجع استراتيجيتك وفكّر في التوقف مؤقتاً."
         else:
             text += "لا يظهر نمط خسائر متتالية في السجل الحالي. واصل الالتزام بخطة المخاطرة."
-        text += "\\n\\nهذا الفحص تعليمي ويعتمد على النتائج التي أدخلتها يدوياً."
+        text += "\n\nهذا الفحص تعليمي ويعتمد على النتائج التي أدخلتها يدوياً."
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal"),
          InlineKeyboardButton("🎓 الأكاديمية", callback_data="learn")],
@@ -438,7 +438,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                        for label, answer in lesson["choices"]]
             buttons.append([InlineKeyboardButton("⬅️ الأكاديمية", callback_data="learn")])
             await q.edit_message_text(
-                f"🎓 {lesson['title']}\\n\\n{lesson['body']}\\n\\n❓ {lesson['question']}",
+                f"🎓 {lesson['title']}\n\n{lesson['body']}\n\n❓ {lesson['question']}",
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
     elif data.startswith("quiz:"):
@@ -450,7 +450,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = parts[2] == lesson["correct"]
             result = "✅ إجابة صحيحة!" if correct else "❌ إجابة غير صحيحة."
             await q.edit_message_text(
-                f"{result}\\n\\n{lesson['explain']}",
+                f"{result}\n\n{lesson['explain']}",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📚 درس آخر", callback_data="learn")],
                     [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
