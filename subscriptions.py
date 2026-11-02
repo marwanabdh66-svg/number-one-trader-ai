@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.getenv("BOT_DB_PATH", "number_one_bot.sqlite3")
 OWNER_ID = os.getenv("OWNER_TELEGRAM_ID", "").strip()
-TRIAL_DAYS = int(os.getenv("PRO_TRIAL_DAYS", "3"))
-TRIAL_DAILY_LIMIT = int(os.getenv("PRO_TRIAL_DAILY_LIMIT", "5"))
+TRIAL_DAYS = int(os.getenv("PRO_TRIAL_DAYS", "1"))
+TRIAL_DAILY_LIMIT = int(os.getenv("PRO_TRIAL_DAILY_LIMIT", "10000"))
 PRO_PAYMENT_INSTRUCTIONS = os.getenv("PRO_PAYMENT_INSTRUCTIONS", "").strip()
 PRO_PRICE_TEXT = os.getenv("PRO_PRICE_TEXT", "تواصل مع إدارة NUMBER ONE لمعرفة السعر ووسيلة الدفع.")
 
@@ -45,6 +45,13 @@ def init_subscriptions():
     columns = {row["name"] for row in con.execute("PRAGMA table_info(pro_requests)").fetchall()}
     if "payment_method" not in columns:
         con.execute("ALTER TABLE pro_requests ADD COLUMN payment_method TEXT")
+    con.execute("CREATE TABLE IF NOT EXISTS subscription_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    migrated = con.execute("SELECT value FROM subscription_settings WHERE key='full_24h_trial_v1'").fetchone()
+    if migrated is None:
+        # Grant existing non-PRO users one clean 24-hour trial under the new policy.
+        con.execute("UPDATE subscription_users SET trial_started=? WHERE pro_until IS NULL OR pro_until<=?",
+                    (_now().isoformat(), _now().isoformat()))
+        con.execute("INSERT INTO subscription_settings(key,value) VALUES('full_24h_trial_v1','done')")
     con.commit()
     con.close()
 
@@ -72,18 +79,16 @@ def access_status(chat_id: int) -> dict:
     trial_started = _parse(row["trial_started"])
     trial_end = trial_started + timedelta(days=TRIAL_DAYS)
     if now < trial_end:
-        day = now.date().isoformat()
-        count = row["daily_count"] if row["daily_date"] == day else 0
-        return {"tier": "trial", "allowed": count < TRIAL_DAILY_LIMIT,
-                "remaining": max(0, TRIAL_DAILY_LIMIT - count),
-                "days_left": max(1, (trial_end.date() - now.date()).days)}
+        # The one-day trial unlocks every bot feature without a daily usage cap.
+        return {"tier": "trial", "allowed": True, "remaining": None,
+                "days_left": 1}
     return {"tier": "expired", "allowed": False, "remaining": 0, "days_left": 0}
 
 def consume_trial_use(chat_id: int) -> bool:
     status = access_status(chat_id)
     if not status["allowed"]:
         return False
-    if status["tier"] in ("owner", "pro"):
+    if status["tier"] in ("owner", "pro", "trial"):
         return True
     day = _now().date().isoformat()
     con = _db()
@@ -147,7 +152,7 @@ AI_FREE_DAILY_CREDITS = int(os.getenv("AI_FREE_DAILY_CREDITS", "5"))
 def ai_credit_status(chat_id: int) -> dict:
     """Daily AI chat allowance: free users get configured credits; PRO and owner are unlimited."""
     tier = access_status(chat_id)["tier"]
-    if tier in ("owner", "pro"):
+    if tier in ("owner", "pro", "trial"):
         return {"tier": tier, "remaining": None, "limit": None, "unlimited": True}
     ensure_user(chat_id)
     day = _now().date().isoformat()
