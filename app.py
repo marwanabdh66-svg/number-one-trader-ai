@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import streamlit as st
 from engine import ASSETS, TIMEFRAMES, analyze_asset, fetch_market_data, get_market_assets, calculate_indicators
+from exchange_monitor import BinanceReadOnlyMonitor, ExchangeMonitorError
 
 st.set_page_config(page_title="NUMBER ONE TRADER AI", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 DB_PATH = os.getenv("TRADER_DB_PATH", "number_one_trader.db")
@@ -62,7 +63,7 @@ hr{border-color:#2c405c}
 """,unsafe_allow_html=True)
 
 st.markdown("""<div class="brand"><div class="brand-icon">📈</div><div><div class="brand-title">NUMBER ONE TRADER AI</div><div class="brand-sub">منصة تحليل الأسواق وإشارات التداول التجريبية</div></div><div class="brand-live">● النظام جاهز للتحليل</div></div>""",unsafe_allow_html=True)
-pages=["🏠 الرئيسية","📡 الإشارات","🔎 التحليل","📊 الأسواق","🧪 التداول التجريبي","🗂️ سجل الإشارات","🤖 بوت تيليجرام","⚙️ الإعدادات","👑 المالك"]
+pages=["🏠 الرئيسية","📡 الإشارات","🔎 التحليل","📊 الأسواق","🧪 التداول التجريبي","🔗 ربط حساب التداول","🗂️ سجل الإشارات","🤖 بوت تيليجرام","⚙️ الإعدادات"]
 page=st.radio("القائمة الرئيسية",pages,horizontal=True,label_visibility="collapsed",key="trader_nav")
 defaults={"timeframe":"5 دقائق","signal_filter":"جميع الإشارات","markets":list(ASSETS.keys()),"selected_assets":[]}
 for k,v in defaults.items():
@@ -177,6 +178,78 @@ elif page=="🧪 التداول التجريبي":
     if closed: st.dataframe([dict(r) for r in closed],use_container_width=True,hide_index=True)
     else: st.caption("لا توجد صفقات مغلقة.")
 
+
+elif page=="🔗 ربط حساب التداول":
+    st.markdown("## 🔗 ربط حسابك بمنصة التداول")
+    exchange=st.selectbox("اختر منصة التداول",["Binance","Bybit","OKX"])
+    if exchange != "Binance":
+        st.info("ربط هذه المنصة غير متاح بعد. سنضيفها بعد اختبار Binance.")
+        st.caption("الحالة: قريباً")
+    else:
+        st.markdown('<div class="panel"><div class="kicker">المرحلة الأولى · قراءة فقط</div><h3>اربط حساب Binance واعرض بياناته</h3><p class="muted">أدخل مفتاح API والسر في النموذج الآمن لهذه الجلسة فقط. لا نكتب المفاتيح في قاعدة البيانات أو ملفات المشروع.</p></div>',unsafe_allow_html=True)
+        st.warning("أنشئ مفتاحاً بصلاحية القراءة فقط، وعطّل التداول والسحب والتحويل. لا تستخدم مفتاحك الأساسي. الاتصال يمر عبر خادم التطبيق؛ لا تستخدمه إذا لم تكن تثق بجهة الاستضافة.")
+        with st.form("binance_readonly_connect", clear_on_submit=True):
+            api_key = st.text_input("مفتاح API", type="password")
+            api_secret = st.text_input("السر السري لمفتاح API", type="password", autocomplete="off")
+            trade_symbol = st.text_input("رمز العملة لعرض سجل التنفيذ (مثال BTCUSDT)", value="BTCUSDT")
+            submitted = st.form_submit_button("🔗 ربط حسابي والتحقق من الاتصال", use_container_width=True)
+        if submitted:
+            if not api_key.strip() or not api_secret.strip():
+                st.error("أدخل مفتاح API والسر لإتمام التحقق.")
+            else:
+                try:
+                    monitor = BinanceReadOnlyMonitor(api_key=api_key, api_secret=api_secret, testnet=False)
+                    with st.spinner("يجري التحقق من Binance وتحميل بيانات الحساب..."):
+                        monitor.ping()
+                        account_data = monitor.account()
+                        open_orders_data = monitor.open_orders()
+                        recent_trades_data = monitor.recent_trades(trade_symbol.strip().upper(), limit=20)
+                    st.session_state["binance_monitor_snapshot"] = {
+                        "account": account_data,
+                        "open_orders": open_orders_data,
+                        "recent_trades": recent_trades_data,
+                        "symbol": trade_symbol.strip().upper(),
+                        "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    st.success("تم الاتصال بنجاح. الحساب متصل بوضع القراءة فقط داخل هذه الجلسة.")
+                except ExchangeMonitorError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("تعذر إكمال الربط بسبب خطأ غير متوقع. تحقق من الإعدادات وحاول مجدداً.")
+        snapshot = st.session_state.get("binance_monitor_snapshot")
+        if snapshot:
+            account_data = snapshot["account"]
+            st.markdown("### 🟢 بيانات الحساب")
+            st.caption(f"آخر تحقق: {snapshot['checked_at']} · سجل التنفيذ للرمز {snapshot['symbol']}")
+            if account_data.get("can_withdraw"):
+                st.error("تنبيه: تشير بيانات الحساب إلى أن السحب مسموح. أوقف الربط وأنشئ مفتاحاً جديداً بصلاحية قراءة فقط مع تعطيل السحب.")
+            a,b,c = st.columns(3)
+            a.metric("الأرصدة غير الصفرية", len(account_data.get("balances", [])))
+            b.metric("الأوامر المفتوحة", len(snapshot["open_orders"]))
+            c.metric("عمليات التنفيذ المعروضة", len(snapshot["recent_trades"]))
+            st.markdown("#### الأرصدة")
+            balances = account_data.get("balances", [])
+            if balances:
+                st.dataframe(pd.DataFrame(balances), use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد أرصدة غير صفرية في حساب Spot.")
+            st.markdown("#### الأوامر المفتوحة")
+            if snapshot["open_orders"]:
+                st.dataframe(pd.DataFrame(snapshot["open_orders"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد أوامر مفتوحة حالياً.")
+            st.markdown(f"#### آخر عمليات التنفيذ · {snapshot['symbol']}")
+            if snapshot["recent_trades"]:
+                st.dataframe(pd.DataFrame(snapshot["recent_trades"]), use_container_width=True, hide_index=True)
+            else:
+                st.info("لم تُرجع المنصة عمليات تنفيذ حديثة لهذا الرمز.")
+            if st.button("مسح بيانات الحساب من هذه الجلسة", use_container_width=True):
+                st.session_state.pop("binance_monitor_snapshot", None)
+                st.rerun()
+            st.caption("هذه البيانات لقطة وقت الاتصال وليست بثاً لحظياً مستمراً. أعد الربط لتحديثها. لا يتم حفظ مفاتيح API في قاعدة بيانات التطبيق.")
+        st.markdown("### حماية الحساب")
+        st.markdown("- أنشئ مفتاحاً منفصلاً بصلاحية القراءة فقط، ولا تمنح صلاحية السحب أو التداول.\n- فعّل تقييد عنوان IP إذا كان عنوان خادم الاستضافة ثابتاً.\n- لا ترسل المفتاح أو السر في المحادثات أو الصور ولا تضعهما في GitHub.\n- هذا الإصدار لا يملك بعد تسجيل دخول موثوقاً وحسابات مستخدمين؛ لذلك لا تحفظ بيانات الربط بعد انتهاء الجلسة ولا تعتبر هذه الخطوة نظام حسابات متعدد المستخدمين مكتملاً.")
+
 elif page=="🗂️ سجل الإشارات":
     st.markdown("## سجل الإشارات");con=db();rows=con.execute("SELECT * FROM signal_history ORDER BY id DESC LIMIT 300").fetchall();con.close()
     if rows:
@@ -204,17 +277,6 @@ elif page=="⚙️ الإعدادات":
     st.session_state["selected_assets"]=st.multiselect("أصول محددة (اتركها فارغة لفحص الكل)",all_assets,default=st.session_state["selected_assets"])
     st.success("تم تطبيق الإعدادات على الجلسة الحالية.")
     st.caption("SQLite محلية؛ قد لا تبقى البيانات بعد إعادة تشغيل استضافة مجانية مؤقتة.")
-
-elif page=="👑 المالك":
-    st.markdown("## لوحة المالك"); password=os.getenv("OWNER_PASSWORD") or st.secrets.get("OWNER_PASSWORD","")
-    if not password: st.warning("أضف OWNER_PASSWORD إلى أسرار الاستضافة لحماية لوحة المالك.")
-    else:
-        entered=st.text_input("كلمة مرور المالك",type="password")
-        if st.button("دخول لوحة المالك"): st.session_state["owner_access"]=(entered==password)
-        if st.session_state.get("owner_access"):
-            con=db(); n=con.execute("SELECT COUNT(*) n FROM signal_history").fetchone()["n"]; t=con.execute("SELECT COUNT(*) n FROM paper_trades").fetchone()["n"]; pnl=con.execute("SELECT COALESCE(SUM(result),0) n FROM paper_trades").fetchone()["n"];con.close()
-            a,b,c=st.columns(3);a.metric("الإشارات",n);b.metric("الصفقات التجريبية",t);c.metric("نتيجة المحاكاة",f"USD {pnl:.2f}")
-            st.info("إدارة المستخدمين والاشتراكات ومفاتيح البيانات تحتاج قاعدة بيانات دائمة وخدمات خلفية غير مفعلة في هذا الإصدار.")
 
 st.markdown("---")
 st.markdown('<div style="text-align:center;color:#899bb4;padding:10px"><b style="color:#d8b968">NUMBER ONE TRADER AI</b><br>التحليل الفني لا يضمن الأرباح. التداول ينطوي على مخاطر خسارة رأس المال.</div>',unsafe_allow_html=True)

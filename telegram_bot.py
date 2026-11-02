@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes, filters
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset
+from smart_guide import smart_guide, find_asset
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
 from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_enabled, scan_signal_watchers
 
@@ -76,6 +77,7 @@ def main_keyboard():
          InlineKeyboardButton("🧭 الفحص السريع", callback_data="quickscan")],
         [InlineKeyboardButton("🔎 تحليل أصل محدد", callback_data="markets"),
          InlineKeyboardButton("📈 حالة التداول الآلي", callback_data="auto_status")],
+        [InlineKeyboardButton("🔗 متابعة حساب التداول", callback_data="exchange_account")],
         [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
          InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
         [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
@@ -150,7 +152,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📘 دليل NUMBER ONE TRADER AI\n\n"
         "1) اختر السوق.\n2) اختر الأصل.\n3) اختر الفاصل الزمني.\n"
         "4) اطلب التحليل لعرض الاتجاه ومستويات الدخول والوقف والهدف.\n\n"
-        "الأوامر: /start /markets /analyze /history /reset /help\n"
+        "الأوامر: /start /markets /analyze /history /account /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
     )
@@ -242,6 +244,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_auto_capital"] = True
         await q.edit_message_text(
             f"إعداداتك: مدة {context.user_data['auto_setup']['duration']} ساعة، مخاطرة {context.user_data['auto_setup']['risk']}%، حد خسارة يومية {daily}%.\\n\\nأرسل الآن مبلغ رأس المال الافتراضي بالأرقام فقط، مثلاً 100."
+        )
+    elif data == "exchange_account":
+        await q.edit_message_text(
+            "🔗 متابعة حساب التداول\\n\\n"
+            "يمكنك متابعة حالة ربط الحساب من هنا. الربط الحالي مع Binance في مرحلة الاختبار، "
+            "ولم يتم بعد تفعيل المزامنة الآمنة بين حساب الموقع وهوية مستخدم Telegram.\\n\\n"
+            "🛡️ لا ترسل مفتاح API أو السر أو كلمة مرور المنصة داخل Telegram. "
+            "لن يطلبهما منك البوت.\\n\\n"
+            "الحالة: الربط بين الموقع والبوت قيد التجهيز.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 تحديث الحالة", callback_data="exchange_account")],
+                [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]
+            ])
         )
     elif data == "auto_status":
         await q.edit_message_text(format_status(q.message.chat_id), reply_markup=InlineKeyboardMarkup([
@@ -389,6 +404,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting_auto_capital"] = False
             await update.message.reply_text("تعذر قراءة الإعدادات. ابدأ إعداد التداول الآلي من القائمة الرئيسية.")
         return
+    requested = update.message.text.strip()
+    if "OTC" in requested.upper() or find_asset(requested):
+        timeframe = context.user_data.get("timeframe", "5 دقائق")
+        await update.message.reply_text("⏳ جارٍ إعداد الدليل الإرشادي الذكي...")
+        try:
+            guide = await asyncio.to_thread(smart_guide, requested, timeframe)
+        except Exception as exc:
+            print(f"Smart guide failed: {type(exc).__name__}")
+            guide = "تعذر إجراء التحليل الآن. لا توجد إشارة؛ حاول لاحقاً."
+        await send_long(update.message, guide)
+        return
     await chat_with_ai(update, context)
 
 
@@ -454,6 +480,21 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_history(update.effective_chat.id, update.message)
+
+
+async def exchange_account_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔗 متابعة حساب التداول\\n\\n"
+        "ربط Binance مع Telegram لم يُفعّل بعد؛ نعمل على ربط آمن بين حساب الموقع وهوية Telegram "
+        "حتى لا تظهر بيانات حساب مستخدم لمستخدم آخر.\\n\\n"
+        "لا ترسل مفاتيح API أو الأسرار أو كلمات مرور المنصة في المحادثة. "
+        "لن يطلبها منك البوت.\\n\\n"
+        "الحالة: قيد التجهيز والاختبار.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تحديث الحالة", callback_data="exchange_account")],
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]
+        ]),
+    )
 
 
 async def auto_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -531,6 +572,7 @@ def main():
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
     app.add_handler(CommandHandler("status", auto_status_command))
+    app.add_handler(CommandHandler("account", exchange_account_command))
     app.add_handler(CommandHandler("trades", auto_trades_command))
     app.add_handler(CommandHandler("stop", stop_auto_command))
     app.add_handler(CommandHandler("reset", reset_chat))
