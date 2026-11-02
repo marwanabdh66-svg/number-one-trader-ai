@@ -20,6 +20,10 @@ from subscriptions import (
     OWNER_ID, activate_pro, access_status, consume_trial_use, create_pro_request,
     ensure_user, init_subscriptions, pro_offer_text, subscription_message,
 )
+from trading_tools import (
+    add_trade, get_trades, get_performance, calculate_risk, init_trading_tools,
+)
+
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -80,9 +84,12 @@ def main_keyboard():
     rows = [
         [InlineKeyboardButton("🤖 محاكاة تداول تجريبية فقط", callback_data="auto"),
          InlineKeyboardButton("📈 حالة المحاكاة", callback_data="auto_status")],
-        [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
-         InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
-        [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC", callback_data="guide")],
+        [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal"),
+         InlineKeyboardButton("🧮 حاسبة المخاطر", callback_data="risk_calc")],
+        [InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance"),
+         InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
+        [InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
+        [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC — قريباً", callback_data="guide")],
         [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro"),
          InlineKeyboardButton("📋 حالة اشتراكي", callback_data="substatus")],
         [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
@@ -157,10 +164,61 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 دليل NUMBER ONE TRADER AI\n\n"
         "الدليل الإرشادي الذكي: قريباً — متوقف مؤقتاً حتى حل مشكلة مصدر بيانات OTC.\n\n"
-        "الأوامر: /start /markets /analyze /history /reset /help\n"
+        "الأوامر: /start /journal /performance /risk /markets /analyze /history /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
     )
+
+async def show_journal(chat_id, message):
+    rows = get_trades(chat_id, 10)
+    if not rows:
+        await message.reply_text(
+            "📒 دفتر التداول فارغ حالياً. اضغط «إضافة صفقة» لتسجيل أول صفقة يدوياً.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ إضافة صفقة", callback_data="journal_add")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+        return
+    lines = ["📒 دفتر تداولك — آخر 10 صفقات", ""]
+    for row in rows:
+        sign = "+" if row["pnl"] > 0 else ""
+        emoji = "🟢" if row["pnl"] > 0 else ("🔴" if row["pnl"] < 0 else "⚪")
+        lines.append(
+            f"{emoji} {row['asset']} | {row['side']}\n"
+            f"الدخول: {row['entry']:g} | الخروج: {row['exit']:g}\n"
+            f"النتيجة المسجلة: {sign}{row['pnl']:.2f}"
+        )
+    await message.reply_text(
+        "\n\n".join(lines),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ إضافة صفقة", callback_data="journal_add"),
+             InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+        ])
+    )
+
+
+async def show_performance(chat_id, message):
+    p = get_performance(chat_id)
+    if not p["total"]:
+        text = "📊 لا توجد صفقات مسجلة بعد. أضف صفقاتك إلى دفتر التداول ليظهر تقرير أدائك."
+    else:
+        text = (
+            "📊 تقرير أدائك المسجل\n\n"
+            f"عدد الصفقات: {p['total']}\n"
+            f"الرابحة: {p['wins']} | الخاسرة: {p['losses']} | المتعادلة: {p['breakeven']}\n"
+            f"نسبة الصفقات الرابحة: {p['win_rate']:.1f}%\n"
+            f"صافي النتائج المسجلة: {p['net']:+.2f}\n"
+            f"متوسط نتيجة الصفقة: {p['average']:+.2f}\n"
+            f"أفضل نتيجة: {p['best']:+.2f} | أسوأ نتيجة: {p['worst']:+.2f}\n\n"
+            "هذه الإحصاءات محسوبة من النتائج التي أدخلتها يدوياً، وليست تحققاً مستقلاً من حساب الوسيط."
+        )
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+    ]))
+
 
 async def show_history(chat_id, message):
     con = db()
@@ -292,6 +350,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "الدليل الإرشادي الذكي ومركز إشارات OTC: قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر البيانات.",
             reply_markup=main_keyboard()
         )
+    elif data == "journal":
+        await show_journal(q.message.chat_id, q.message)
+    elif data == "journal_add":
+        context.user_data["journal_flow"] = {"step": "asset"}
+        await q.edit_message_text("➕ تسجيل صفقة جديدة\n\nاكتب اسم الأصل أو الزوج، مثال: EUR/USD أو الذهب.")
+    elif data.startswith("journal_side:"):
+        flow = context.user_data.get("journal_flow")
+        if not flow:
+            await q.edit_message_text("انتهت جلسة التسجيل. افتح دفتر التداول وابدأ من جديد.", reply_markup=main_keyboard())
+        else:
+            flow["side"] = "شراء" if data.endswith("buy") else "بيع"
+            flow["step"] = "entry"
+            await q.edit_message_text("أرسل سعر الدخول بالأرقام فقط، مثال: 1.0850")
+    elif data == "performance":
+        await show_performance(q.message.chat_id, q.message)
+    elif data == "risk_calc":
+        context.user_data["awaiting_risk_input"] = True
+        await q.edit_message_text(
+            "🧮 حاسبة المخاطر المجانية\n\n"
+            "أرسل ثلاثة أرقام بهذا الترتيب: رأس المال نسبة المخاطرة% مسافة وقف الخسارة%\n"
+            "مثال: 1000 1 2\n\n"
+            "أي أن رأس المال 1000، والمخاطرة 1%، ووقف الخسارة يبعد 2% عن سعر الدخول."
+        )
     elif data == "history":
         await show_history(q.message.chat_id, q.message)
     elif data == "settings":
@@ -359,6 +440,95 @@ async def ask_openai(history):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
+        return
+
+    # خطوات تسجيل الصفقة اليدوية وحاسبة المخاطر — متاحة مجاناً.
+    flow = context.user_data.get("journal_flow")
+    if flow:
+        raw_value = update.message.text.strip()
+        step = flow.get("step")
+        if step == "asset":
+            if not raw_value or len(raw_value) > 32:
+                await update.message.reply_text("اكتب اسم أصل أو زوجاً صحيحاً لا يتجاوز 32 حرفاً.")
+                return
+            flow["asset"] = raw_value
+            flow["step"] = "side"
+            await update.message.reply_text(
+                f"الأصل: {raw_value}\nاختر اتجاه الصفقة:",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("شراء", callback_data="journal_side:buy"),
+                    InlineKeyboardButton("بيع", callback_data="journal_side:sell")
+                ]])
+            )
+            return
+        if step in ("entry", "exit", "pnl"):
+            try:
+                number = float(raw_value.replace(",", ""))
+                if not __import__("math").isfinite(number):
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("أرسل رقماً صحيحاً فقط، ويمكنك استخدام الكسور العشرية.")
+                return
+            if step in ("entry", "exit") and number <= 0:
+                await update.message.reply_text("يجب أن يكون السعر أكبر من صفر. أعد إدخاله.")
+                return
+            if step == "entry":
+                flow["entry"] = number
+                flow["step"] = "exit"
+                await update.message.reply_text("أرسل سعر الخروج من الصفقة.")
+            elif step == "exit":
+                flow["exit"] = number
+                flow["step"] = "pnl"
+                await update.message.reply_text(
+                    "أرسل صافي نتيجة الصفقة كما ظهرت لك: ربح موجب أو خسارة سالبة. مثال: 5.50 أو -3.25"
+                )
+            else:
+                try:
+                    trade_id = add_trade(
+                        update.effective_chat.id, flow["asset"], flow["side"],
+                        flow["entry"], flow["exit"], number
+                    )
+                except (ValueError, KeyError) as exc:
+                    await update.message.reply_text(str(exc))
+                    return
+                context.user_data.pop("journal_flow", None)
+                await update.message.reply_text(
+                    f"✅ تم حفظ الصفقة رقم #{trade_id} في دفتر التداول.\n"
+                    f"النتيجة المسجلة: {number:+.2f}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal"),
+                         InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance")],
+                        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+                    ])
+                )
+            return
+
+    if context.user_data.get("awaiting_risk_input"):
+        try:
+            parts = update.message.text.replace(",", ".").split()
+            if len(parts) != 3:
+                raise ValueError
+            result = calculate_risk(float(parts[0]), float(parts[1]), float(parts[2]))
+        except ValueError as exc:
+            await update.message.reply_text(
+                (str(exc) if str(exc) else "صيغة الإدخال غير صحيحة.")
+                + "\nأرسلها بهذا الشكل: 1000 1 2"
+            )
+            return
+        context.user_data["awaiting_risk_input"] = False
+        await update.message.reply_text(
+            "🧮 نتيجة حاسبة المخاطر\n\n"
+            f"رأس المال: {result['capital']:.2f}\n"
+            f"نسبة المخاطرة: {result['risk_percent']:.2f}%\n"
+            f"المبلغ المعرض للمخاطرة: {result['risk_amount']:.2f}\n"
+            f"مسافة وقف الخسارة: {result['stop_percent']:.2f}%\n"
+            f"حجم المركز الحسابي التقريبي: {result['position_size']:.2f}\n\n"
+            "الحساب تعليمي فقط. تحقق من متطلبات الوسيط والرافعة والرسوم، ولا يعني حجم المركز أنه مبلغ مضمون أو مناسب لك.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🧮 حساب جديد", callback_data="risk_calc")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
         return
 
     # الدليل الإرشادي متوقف مؤقتاً؛ امنع جميع طلبات OTC حتى إعادة تفعيله.
@@ -469,6 +639,26 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "تعذر الاتصال بالمساعد الذكي الآن. تحقق من إعداد مفتاح الخدمة ورصيد واجهة API."
         )
+
+async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 3:
+        context.user_data["awaiting_risk_input"] = True
+        await update.message.reply_text(
+            "🧮 أرسل: رأس المال نسبة المخاطرة% مسافة وقف الخسارة%\nمثال: /risk 1000 1 2"
+        )
+        return
+    try:
+        result = calculate_risk(*(float(x) for x in context.args))
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return
+    await update.message.reply_text(
+        "🧮 نتيجة حاسبة المخاطر\n\n"
+        f"المبلغ المعرض للمخاطرة: {result['risk_amount']:.2f}\n"
+        f"حجم المركز الحسابي التقريبي: {result['position_size']:.2f}\n"
+        "حساب تعليمي وليس توصية مالية."
+    )
+
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧭 الدليل الإرشادي الذكي — قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة بيانات Pocket Option OTC.")
@@ -643,6 +833,7 @@ def main():
     init_auto_db()
     init_signal_monitor()
     init_subscriptions()
+    init_trading_tools()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -652,6 +843,9 @@ def main():
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("activate", activate_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
+    app.add_handler(CommandHandler("journal", lambda u, c: show_journal(u.effective_chat.id, u.message)))
+    app.add_handler(CommandHandler("performance", lambda u, c: show_performance(u.effective_chat.id, u.message)))
+    app.add_handler(CommandHandler("risk", lambda u, c: risk_command(u, c)))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
     app.add_handler(CommandHandler("status", auto_status_command))
