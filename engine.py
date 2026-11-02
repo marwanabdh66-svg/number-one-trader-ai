@@ -17,6 +17,8 @@ BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines"
 OTCHARTS_BASE = "https://otcharts.com/v1"
 OTCHARTS_API_KEY = __import__("os").getenv("OTCHARTS_API_KEY", "").strip()
 OTC_TIMEFRAMES = {"1 دقيقة": 60, "5 دقائق": 300, "15 دقيقة": 900, "30 دقيقة": 1800, "ساعة": 3600, "4 ساعات": 14400}
+_OTC_SYMBOL_CACHE: dict[str, tuple[float, str]] = {}
+_OTC_SYMBOL_CACHE_TTL = 3600
 
 
 TIMEFRAMES = {
@@ -141,10 +143,13 @@ def fetch_market_data(symbol: str, timeframe_label: str, period: str = "5d") -> 
         return pd.DataFrame(), "غير متاح"
 
 def resolve_otc_symbol(pair: str) -> str | None:
-    """Resolve pair against the API's live Pocket Option symbol catalogue."""
+    """Resolve a pair only from the API's Pocket Option OTC catalogue; never guess ids."""
     if not OTCHARTS_API_KEY:
         return None
     normalized = pair.upper().replace("/", "").replace("-", "").replace(" ", "")
+    cached = _OTC_SYMBOL_CACHE.get(normalized)
+    if cached and time.time() - cached[0] < _OTC_SYMBOL_CACHE_TTL:
+        return cached[1]
     try:
         response = requests.get(
             f"{OTCHARTS_BASE}/symbols",
@@ -158,6 +163,7 @@ def resolve_otc_symbol(pair: str) -> str | None:
             name = str(item.get("name", "")).upper().replace("/", "").replace(" ", "").replace("OTC", "")
             symbol_normalized = symbol.upper().replace("_OTC", "").replace("/", "").replace("-", "")
             if normalized == name or normalized == symbol_normalized:
+                _OTC_SYMBOL_CACHE[normalized] = (time.time(), symbol)
                 return symbol
     except requests.HTTPError as exc:
         response = exc.response
@@ -333,6 +339,83 @@ def analyze_asset(asset: str, symbol: str, market: str, timeframe: str,
         source=source,
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         reasons="، ".join(reasons),
+    ))
+
+def analyze_otc_poc(asset: str, symbol: str, timeframe: str) -> dict | None:
+    """Pocket Option OTC-only setup: POC retest + candle confirmation + trend filters.
+
+    If the provider omits candle volume, use a candle-count/TPO proxy and disclose that
+    limitation; never label the proxy as a true volume POC.
+    """
+    if not symbol.lower().endswith("_otc"):
+        return None
+    frame, source = fetch_market_data(symbol, timeframe)
+    if frame.empty or not source.startswith("OTCharts Pocket Option OTC"):
+        return None
+    data = calculate_indicators(frame)
+    if len(data) < 55:
+        return None
+
+    profile = _normalize(frame).tail(120).copy()
+    if len(profile) < 20:
+        return None
+    typical = (profile["high"] + profile["low"] + profile["close"]) / 3
+    low_edge, high_edge = float(profile["low"].min()), float(profile["high"].max())
+    if not math.isfinite(low_edge + high_edge) or high_edge <= low_edge:
+        return None
+    bins = 48
+    bucket = ((typical - low_edge) / (high_edge - low_edge) * bins).clip(0, bins - 1).astype(int)
+    volume = profile["volume"].fillna(0)
+    has_real_volume = float(volume.sum()) > 0
+    weights = volume if has_real_volume else pd.Series(1.0, index=profile.index)
+    distribution = weights.groupby(bucket).sum()
+    if distribution.empty or float(distribution.max()) <= 0:
+        return None
+    poc_bucket = int(distribution.idxmax())
+    poc = low_edge + (poc_bucket + 0.5) * (high_edge - low_edge) / bins
+
+    last, prev = data.iloc[-1], data.iloc[-2]
+    candle = profile.iloc[-1]
+    touched = float(candle["low"]) <= poc + max((high_edge-low_edge)/bins*0.4, abs(poc)*0.00003) and float(candle["high"]) >= poc - max((high_edge-low_edge)/bins*0.4, abs(poc)*0.00003)
+    if not touched:
+        return None
+
+    direction = None
+    tolerance = max((high_edge-low_edge)/bins*0.4, abs(poc)*0.00003)
+    if float(prev["close"]) > poc+tolerance and float(last["close"]) > poc+tolerance and float(candle["close"]) > float(candle["open"]):
+        direction = "صعود"
+    elif float(prev["close"]) < poc-tolerance and float(last["close"]) < poc-tolerance and float(candle["close"]) < float(candle["open"]):
+        direction = "هبوط"
+    if direction is None:
+        return None
+
+    bullish_trend = float(last["ema9"]) > float(last["ema21"]) > float(last["ema50"])
+    bearish_trend = float(last["ema9"]) < float(last["ema21"]) < float(last["ema50"])
+    if direction == "صعود" and not bullish_trend:
+        return None
+    if direction == "هبوط" and not bearish_trend:
+        return None
+    if direction == "صعود" and not (45 <= float(last["rsi"]) <= 72):
+        return None
+    if direction == "هبوط" and not (28 <= float(last["rsi"]) <= 55):
+        return None
+
+    close, atr = float(last["close"]), float(last["atr"])
+    if not math.isfinite(close+atr) or close <= 0 or atr <= 0:
+        return None
+    stop, target = (close-atr*1.2, close+atr*1.8) if direction == "صعود" else (close+atr*1.2, close-atr*1.8)
+    profile_label = "POC حجمي" if has_real_volume else "POC سعري تقريبي (حجم التداول غير متاح من المزود)"
+    reasons = f"إعادة اختبار {profile_label}، شمعة تأكيد، توافق EMA9/21/50، RSI={float(last['rsi']):.1f}"
+    return asdict(Signal(
+        asset=asset, symbol=symbol, market="Pocket Option OTC", timeframe=timeframe,
+        direction=direction, signal_type="تأكيد POC",
+        confidence=78 if has_real_volume else 68,
+        entry=close, stop_loss=stop, take_profit=target,
+        rsi=round(float(last["rsi"]), 2),
+        macd="إيجابي" if last["macd"] > last["macd_signal"] else "سلبي",
+        trend="صاعد" if bullish_trend else "هابط", source=source,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        reasons=reasons,
     ))
 
 def get_market_assets(markets: list[str], selected_assets: list[str] | None = None):
