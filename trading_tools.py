@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import math
 import sqlite3
 from datetime import datetime, timezone
 
@@ -40,6 +41,8 @@ def add_trade(chat_id: int, asset: str, side: str, entry: float,
         raise ValueError("اكتب اسم الأصل أو الزوج.")
     if side not in ("شراء", "بيع"):
         raise ValueError("اتجاه الصفقة غير صحيح.")
+    if not all(math.isfinite(float(x)) for x in (entry, exit_price, pnl)):
+        raise ValueError("أدخل أرقاماً صحيحة ومحدودة.")
     if entry <= 0 or exit_price <= 0:
         raise ValueError("سعر الدخول والخروج يجب أن يكونا أكبر من صفر.")
     con = _db()
@@ -99,6 +102,8 @@ def calculate_risk(capital: float, risk_percent: float, stop_percent: float) -> 
     capital = float(capital)
     risk_percent = float(risk_percent)
     stop_percent = float(stop_percent)
+    if not all(math.isfinite(x) for x in (capital, risk_percent, stop_percent)):
+        raise ValueError("تأكد من إدخال أرقام صحيحة.")
     if capital <= 0:
         raise ValueError("رأس المال يجب أن يكون أكبر من صفر.")
     if not 0 < risk_percent <= 10:
