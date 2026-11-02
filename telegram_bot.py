@@ -640,16 +640,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
     elif data == "pro":
-        request_id = create_pro_request(q.message.chat_id)
         await q.edit_message_text(
-            pro_offer_text(request_id),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
+            "💎 اشتراك NUMBER ONE PRO — للمستخدمين في اليمن\\n\\n"
+            "اختر المحفظة المحلية. لا تحول أي مبلغ قبل توفر بيانات محفظة الاستقبال من الإدارة. "
+            "سيتم التحقق من الحوالة يدوياً بعد وصولها إلى المحفظة.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📱 جوالي", callback_data="pay:jawali")],
+                [InlineKeyboardButton("💼 جيب", callback_data="pay:jaib")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data in ("pay:jawali", "pay:jaib"):
+        method = "jawali" if data == "pay:jawali" else "jaib"
+        method_name = "جوالي" if method == "jawali" else "جيب"
+        context.user_data["selected_payment_method"] = method_name
+        request_id = create_pro_request(q.message.chat_id, method)
+        await q.edit_message_text(
+            f"📥 طلب اشتراك PRO #{request_id}\\n\\n"
+            f"وسيلة الدفع المختارة: {method_name}\\n"
+            "الحالة: بانتظار بيانات الدفع والتحقق اليدوي.\\n\\n"
+            "لم تُضف الإدارة رقم محفظة الاستقبال أو السعر بعد؛ لا ترسل أي تحويل حالياً. "
+            "عند توفر البيانات، أرسل صورة الإيصال هنا بعد التحويل. سيقوم المالك بمراجعة العملية داخل تطبيق المحفظة ثم تفعيل الاشتراك.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 اختيار محفظة أخرى", callback_data="pro")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
         )
         if OWNER_ID:
             try:
                 await context.bot.send_message(
                     chat_id=int(OWNER_ID),
-                    text=f"طلب اشتراك PRO جديد #{request_id} من المستخدم {q.message.chat_id}. للتفعيل: /activate {q.message.chat_id} 30"
+                    text=f"📥 طلب PRO #{request_id}\\nالمستخدم: {q.message.chat_id}\\nالمحفظة: {method_name}\\n"
+                         f"للتحقق والتفعيل بعد استلام الحوالة: /activate {q.message.chat_id} 30"
                 )
             except Exception as exc:
                 print(f"PRO admin notification failed: {type(exc).__name__}")
@@ -1045,16 +1067,16 @@ async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    request_id = create_pro_request(update.effective_chat.id)
-    await update.message.reply_text(pro_offer_text(request_id), reply_markup=main_keyboard())
-    if OWNER_ID:
-        try:
-            await context.bot.send_message(
-                chat_id=int(OWNER_ID),
-                text=f"طلب اشتراك PRO جديد #{request_id} من المستخدم {update.effective_chat.id}. للتفعيل: /activate {update.effective_chat.id} 30"
-            )
-        except Exception as exc:
-            print(f"PRO admin notification failed: {type(exc).__name__}")
+    await update.message.reply_text(
+        "💎 اشتراك NUMBER ONE PRO — للمستخدمين في اليمن\\n\\n"
+        "اختر محفظة الدفع المحلية. التحقق يدوي من المالك بعد التأكد من وصول الحوالة.\\n"
+        "لا تحول قبل استلام بيانات محفظة الاستقبال الرسمية من الإدارة.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 جوالي", callback_data="pay:jawali")],
+            [InlineKeyboardButton("💼 جيب", callback_data="pay:jaib")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+        ])
+    )
 
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -1097,7 +1119,8 @@ async def payment_photo_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"المستخدم: {user.full_name}\n"
         f"Telegram ID: {update.effective_chat.id}\n"
         f"Username: @{user.username or 'غير متاح'}\n"
-        "راجع التحويل ثم فعّل الاشتراك بالأمر: /activate TELEGRAM_ID 30"
+        f"المحفظة المختارة: {context.user_data.get('selected_payment_method', 'غير محددة')}\n"
+        "راجع وصول المبلغ داخل تطبيق المحفظة قبل التفعيل: /activate TELEGRAM_ID 30"
     )
     try:
         await context.bot.send_message(chat_id=int(OWNER_ID), text=caption)
