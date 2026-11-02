@@ -365,6 +365,58 @@ async def ask_openai(history):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
+
+    # Accept direct pair messages such as EUR/USD or EUR/USD 5m.
+    # Pocket Option OTC prices are not available from the current market-data feeds.
+    if not context.user_data.get("awaiting_auto_capital"):
+        raw_text = update.message.text.strip().upper()
+        import re
+        pair_match = re.fullmatch(r"([A-Z]{3})\s*[/\-]\s*([A-Z]{3})(?:\s+(OTC))?(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
+        if pair_match:
+            base, quote, otc, requested_tf = pair_match.groups()
+            pair = f"{base}/{quote}"
+            if otc:
+                await update.message.reply_text(
+                    f"⚠️ تم استلام الزوج {pair} OTC.\n"
+                    "الدليل الإرشادي الذكي يستقبل الزوج مباشرة، لكن بيانات OTC الخاصة بـ Pocket Option "
+                    "غير متاحة في مصدر البيانات الحالي؛ لذلك لن أخمّن صعوداً أو هبوطاً.\n"
+                    "أحتاج ربط مصدر بيانات OTC موثوق حتى أحلل هذا الزوج فعلياً.",
+                    reply_markup=main_keyboard()
+                )
+                return
+
+            found = None
+            for market, items in ASSETS.items():
+                for name, symbol in items.items():
+                    if name.upper().replace(" ", "") == pair.replace("/", "") or symbol.upper().replace("=X", "").replace("/", "") == pair.replace("/", ""):
+                        found = (name, symbol, market)
+                        break
+                if found:
+                    break
+            if not found:
+                await update.message.reply_text(
+                    f"⚠️ استلمت الزوج {pair}، لكنه غير موجود ضمن الأصول المدعومة حالياً. "
+                    "لن أُصدر إشارة دون بيانات سوق فعلية.",
+                    reply_markup=main_keyboard()
+                )
+                return
+
+            timeframe_code = requested_tf.lower() if requested_tf else "5m"
+            label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), "5 دقائق")
+            await update.message.reply_text(f"⏳ تم استلام {pair}. جارٍ تحليل البيانات المتاحة على فاصل {label}...")
+            try:
+                result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
+            except Exception:
+                result = None
+            if not result:
+                await update.message.reply_text(
+                    "لم تتوفر بيانات كافية أو إشارة واضحة لهذا الزوج حالياً. جرّب لاحقاً أو غيّر الفاصل.",
+                    reply_markup=main_keyboard()
+                )
+                return
+            save_signal(update.effective_chat.id, result)
+            await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
+            return
     if context.user_data.get("awaiting_auto_capital"):
         raw = update.message.text.strip().replace(",", "")
         try:
