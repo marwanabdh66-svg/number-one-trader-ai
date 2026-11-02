@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Python syntax
-        run: python -m py_compile app.py engine.py telegram_bot.py
+        run: python -m py_compile app.py engine.py telegram_bot.py trading_tools.py
