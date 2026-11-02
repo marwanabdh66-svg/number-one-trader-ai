@@ -159,6 +159,13 @@ def resolve_otc_symbol(pair: str) -> str | None:
             symbol_normalized = symbol.upper().replace("_OTC", "").replace("/", "").replace("-", "")
             if normalized == name or normalized == symbol_normalized:
                 return symbol
+    except requests.HTTPError as exc:
+        response = exc.response
+        status = response.status_code if response is not None else "?"
+        detail = (response.text[:240].replace("\\n", " ") if response is not None else "")
+        print(f"OTCharts symbol catalogue failed: HTTP {status}; {detail}")
+    except requests.RequestException as exc:
+        print(f"OTCharts symbol catalogue request failed: {type(exc).__name__}")
     except Exception as exc:
         print(f"OTCharts symbol catalogue failed: {type(exc).__name__}")
     return None
