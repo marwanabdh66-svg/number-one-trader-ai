@@ -396,6 +396,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_keyboard()
                 )
                 return
+            if not consume_trial_use(update.effective_chat.id):
+                await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لتفعيل الاشتراك.")
+                return
             timeframe_code = requested_tf.lower() if requested_tf else "5m"
             label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), "5 دقائق")
             await update.message.reply_text(f"⏳ جارٍ فحص شموع Pocket Option OTC للزوج {pair} على {label}...")
@@ -483,13 +486,16 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     base, quote, requested_tf = match.groups()
     status = access_status(update.effective_chat.id)
-    if not status["allowed"] or not consume_trial_use(update.effective_chat.id):
+    if not status["allowed"]:
         await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لطلب PRO.")
         return
     pair = f"{base}/{quote}"
     symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
     if not symbol:
         await update.message.reply_text("تعذر العثور على الزوج في كتالوج Pocket Option OTC. لم يتم استخدام مصدر بديل.")
+        return
+    if not consume_trial_use(update.effective_chat.id):
+        await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لطلب PRO.")
         return
     tf = requested_tf.lower() if requested_tf else "5m"
     label = next((k for k, (code, _) in TIMEFRAMES.items() if code == tf), "5 دقائق")
@@ -562,7 +568,7 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"Telegram ID الخاص بحسابك: {update.effective_user.id}\\n"
+        f"Telegram ID الخاص بحسابك: {update.effective_user.id}\n"
         "إذا كنت مالك البوت، ضع هذا الرقم في متغير الاستضافة OWNER_TELEGRAM_ID."
     )
 
