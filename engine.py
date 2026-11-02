@@ -13,7 +13,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines"
 OTCHARTS_BASE = "https://otcharts.com/v1"
 OTCHARTS_API_KEY = __import__("os").getenv("OTCHARTS_API_KEY", "").strip()
 OTC_TIMEFRAMES = {"1 دقيقة": 60, "5 دقائق": 300, "15 دقيقة": 900, "30 دقيقة": 1800, "ساعة": 3600, "4 ساعات": 14400}
