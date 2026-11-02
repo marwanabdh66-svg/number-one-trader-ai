@@ -63,7 +63,7 @@ hr{border-color:#2c405c}
 """,unsafe_allow_html=True)
 
 st.markdown("""<div class="brand"><div class="brand-icon">📈</div><div><div class="brand-title">NUMBER ONE TRADER AI</div><div class="brand-sub">منصة تحليل الأسواق وإشارات التداول التجريبية</div></div><div class="brand-live">● النظام جاهز للتحليل</div></div>""",unsafe_allow_html=True)
-pages=["🏠 الرئيسية","📡 الإشارات","🔎 التحليل","📊 الأسواق","🧪 التداول التجريبي","🔗 ربط حساب التداول","🗂️ سجل الإشارات","🤖 بوت تيليجرام","⚙️ الإعدادات","👑 المالك"]
+pages=["🏠 الرئيسية","📡 الإشارات","🔎 التحليل","📊 الأسواق","🧪 التداول التجريبي","🔗 ربط حساب التداول","🗂️ سجل الإشارات","🤖 بوت تيليجرام","⚙️ الإعدادات"]
 page=st.radio("القائمة الرئيسية",pages,horizontal=True,label_visibility="collapsed",key="trader_nav")
 defaults={"timeframe":"5 دقائق","signal_filter":"جميع الإشارات","markets":list(ASSETS.keys()),"selected_assets":[]}
 for k,v in defaults.items():
@@ -277,17 +277,6 @@ elif page=="⚙️ الإعدادات":
     st.session_state["selected_assets"]=st.multiselect("أصول محددة (اتركها فارغة لفحص الكل)",all_assets,default=st.session_state["selected_assets"])
     st.success("تم تطبيق الإعدادات على الجلسة الحالية.")
     st.caption("SQLite محلية؛ قد لا تبقى البيانات بعد إعادة تشغيل استضافة مجانية مؤقتة.")
-
-elif page=="👑 المالك":
-    st.markdown("## لوحة المالك"); password=os.getenv("OWNER_PASSWORD") or st.secrets.get("OWNER_PASSWORD","")
-    if not password: st.warning("أضف OWNER_PASSWORD إلى أسرار الاستضافة لحماية لوحة المالك.")
-    else:
-        entered=st.text_input("كلمة مرور المالك",type="password")
-        if st.button("دخول لوحة المالك"): st.session_state["owner_access"]=(entered==password)
-        if st.session_state.get("owner_access"):
-            con=db(); n=con.execute("SELECT COUNT(*) n FROM signal_history").fetchone()["n"]; t=con.execute("SELECT COUNT(*) n FROM paper_trades").fetchone()["n"]; pnl=con.execute("SELECT COALESCE(SUM(result),0) n FROM paper_trades").fetchone()["n"];con.close()
-            a,b,c=st.columns(3);a.metric("الإشارات",n);b.metric("الصفقات التجريبية",t);c.metric("نتيجة المحاكاة",f"USD {pnl:.2f}")
-            st.info("إدارة المستخدمين والاشتراكات ومفاتيح البيانات تحتاج قاعدة بيانات دائمة وخدمات خلفية غير مفعلة في هذا الإصدار.")
 
 st.markdown("---")
 st.markdown('<div style="text-align:center;color:#899bb4;padding:10px"><b style="color:#d8b968">NUMBER ONE TRADER AI</b><br>التحليل الفني لا يضمن الأرباح. التداول ينطوي على مخاطر خسارة رأس المال.</div>',unsafe_allow_html=True)
