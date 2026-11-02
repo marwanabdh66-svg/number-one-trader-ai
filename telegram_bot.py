@@ -166,7 +166,17 @@ async def send_long(message, text):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("timeframe", "5 دقائق")
     ensure_user(update.effective_chat.id)
-    await update.message.reply_text(HELP_TEXT + "\n\n" + subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
+    welcome_text = HELP_TEXT + "\n\n" + subscription_message(update.effective_chat.id)
+    welcome_image = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome_ar.png")
+    if os.path.isfile(welcome_image):
+        with open(welcome_image, "rb") as photo:
+            await update.message.reply_photo(
+                photo=photo,
+                caption=welcome_text,
+                reply_markup=main_keyboard()
+            )
+    else:
+        await update.message.reply_text(welcome_text, reply_markup=main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
