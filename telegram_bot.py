@@ -384,9 +384,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_keyboard()
                 )
                 return
-            if not consume_trial_use(update.effective_chat.id):
-                await update.message.reply_text(subscription_message(update.effective_chat.id) + "\nاكتب /pro لتفعيل PRO.")
-                return
             otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
             if not otc_symbol:
                 await update.message.reply_text(
