@@ -39,8 +39,9 @@ HELP_TEXT = (
     "     ◆ NUMBER ONE ◆\n"
     "       TRADER AI\n"
     "╚════════════════════╝\n\n"
-    "مرحباً بك في مركز التحليل والتداول الذكي.\n"
-    "حلّل أزواج Pocket Option OTC، وتابع اتجاهها، واختبر محاكاة تعليمية منفصلة.\n\n"
+    "مرحباً بك في مركز NUMBER ONE TRADER AI.\n"
+    "الدليل الإرشادي الذكي لـ Pocket Option OTC: قريباً.\n"
+    "يمكنك حالياً استخدام المحاكاة التعليمية والمساعد الذكي وسجلّك الشخصي.\n\n"
     "اختر الخدمة من لوحة التحكم أدناه.\n"
     "🛡️ التداول الآلي المتاح حالياً محاكاة فقط؛ لا يستخدم أموالاً حقيقية."
 )
@@ -155,9 +156,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 دليل NUMBER ONE TRADER AI\n\n"
-        "1) أرسل زوج Pocket Option OTC مع كلمة OTC، مثال AED/CNY OTC 5m.\n"
-        "2) الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h.\n"
-        "3) لن يصدر البوت سهماً دون بيانات OTC وإعادة اختبار POC وشمعة تأكيد.\n\n"
+        "الدليل الإرشادي الذكي: قريباً — متوقف مؤقتاً حتى حل مشكلة مصدر بيانات OTC.\n\n"
         "الأوامر: /start /markets /analyze /history /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
@@ -281,17 +280,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(HELP_TEXT, reply_markup=main_keyboard())
     elif data == "markets" or data.startswith(("market:", "asset:", "tf:")):
         await q.edit_message_text(
-            "تم تخصيص الدليل الإرشادي لبيانات Pocket Option OTC فقط. أرسل مثلاً: AED/CNY OTC 5m. "
-            "لن يتم تحليل بيانات Binance أو Yahoo ضمن هذا المسار.",
+            "الدليل الإرشادي الذكي متوقف مؤقتاً — قريباً. لن يتم تحليل أزواج OTC أو إصدار إشارات حتى حل مشكلة مصدر البيانات.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
         )
     elif data == "change_tf":
-        await q.edit_message_text("حدد الفاصل في رسالة الدليل، مثال: AED/CNY OTC 5m.", reply_markup=main_keyboard())
+        await q.edit_message_text("الدليل الإرشادي الذكي متوقف مؤقتاً — قريباً.", reply_markup=main_keyboard())
     elif data in ("analyze", "reanalyze"):
-        await q.edit_message_text("لتحليل Pocket Option OTC أرسل الزوج نصياً، مثال: AED/CNY OTC 5m.", reply_markup=main_keyboard())
+        await q.edit_message_text("الدليل الإرشادي الذكي متوقف مؤقتاً — قريباً. لن تصدر إشارات حتى إعادة تفعيل مصدر بيانات OTC.", reply_markup=main_keyboard())
     elif data in ("signals", "signals_toggle", "quickscan"):
         await q.edit_message_text(
-            "مركز الإشارات المخصص حالياً هو الدليل الإرشادي لـ Pocket Option OTC. أرسل الزوج مع OTC، مثال AED/CNY OTC 5m.",
+            "الدليل الإرشادي الذكي ومركز إشارات OTC: قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر البيانات.",
             reply_markup=main_keyboard()
         )
     elif data == "history":
@@ -303,12 +301,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "guide":
         await q.edit_message_text(
-            "🧭 الدليل الإرشادي الذكي — Pocket Option OTC فقط\n\n"
-            "أرسل الزوج بهذه الصيغة: AED/CNY OTC 5m\n"
-            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h.\n\n"
-            "المصدر الوحيد هنا هو شموع Pocket Option OTC عبر OTCharts. "
-            "لن أستخدم Binance أو Yahoo أو أسعار الفوركس العادية بديلاً عنها. "
-            "إذا تعذر مصدر OTC فلن يصدر البوت سهماً.\n\n"
+            "🧭 الدليل الإرشادي الذكي — قريباً\n\n"
+            "الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر بيانات Pocket Option OTC.\n"
+            "لن يتم تحليل الأزواج أو إصدار إشارات خلال فترة التوقف.\n"
+            "لن نستخدم بيانات أسواق أخرى أو إشارات تقديرية بديلاً عن بيانات OTC.\n\n"
             + subscription_message(q.message.chat_id),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro")],
@@ -365,9 +361,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    # OTC-only guide: never substitute ordinary Forex, Yahoo or crypto data.
+    # الدليل الإرشادي متوقف مؤقتاً؛ امنع جميع طلبات OTC حتى إعادة تفعيله.
     if not context.user_data.get("awaiting_auto_capital"):
         raw_text = update.message.text.strip().upper()
+        if "OTC" in raw_text:
+            await update.message.reply_text("🧭 الدليل الإرشادي الذكي — قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة بيانات Pocket Option OTC. لن تصدر أي إشارات خلال فترة التوقف.", reply_markup=main_keyboard())
+            return
         import re
         pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H))?", raw_text)
         if pair_match:
@@ -472,6 +471,8 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🧭 الدليل الإرشادي الذكي — قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة بيانات Pocket Option OTC.")
+    return
     raw = " ".join(context.args).upper().strip()
     import re
     match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})\s+OTC(?:\s+(1M|5M|15M|30M|1H))?", raw)
@@ -645,7 +646,7 @@ def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("للدليل الإرشادي استخدم صيغة الزوج مع OTC، مثال AED/CNY OTC 5m. لا توجد بيانات سوق عادي ضمن الدليل.")))
+    app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("الدليل الإرشادي الذكي — قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر بيانات Pocket Option OTC.")))
     app.add_handler(CommandHandler("pro", pro_command))
     app.add_handler(CommandHandler("substatus", substatus_command))
     app.add_handler(CommandHandler("id", id_command))
