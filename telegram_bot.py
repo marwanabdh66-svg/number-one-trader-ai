@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes, filters
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset
+from smart_guide import smart_guide, find_asset
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
 from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_enabled, scan_signal_watchers
 
@@ -402,6 +403,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except KeyError:
             context.user_data["awaiting_auto_capital"] = False
             await update.message.reply_text("تعذر قراءة الإعدادات. ابدأ إعداد التداول الآلي من القائمة الرئيسية.")
+        return
+    requested = update.message.text.strip()
+    if "OTC" in requested.upper() or find_asset(requested):
+        timeframe = context.user_data.get("timeframe", "5 دقائق")
+        await update.message.reply_text("⏳ جارٍ إعداد الدليل الإرشادي الذكي...")
+        try:
+            guide = await asyncio.to_thread(smart_guide, requested, timeframe)
+        except Exception as exc:
+            print(f"Smart guide failed: {type(exc).__name__}")
+            guide = "تعذر إجراء التحليل الآن. لا توجد إشارة؛ حاول لاحقاً."
+        await send_long(update.message, guide)
         return
     await chat_with_ai(update, context)
 
