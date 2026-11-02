@@ -136,7 +136,7 @@ def calculate_payout_edge(payout_percent: float, win_rate_percent: float,
     if not 0 <= drawdown < 100:
         raise ValueError("نسبة التراجع يجب أن تكون من 0% إلى أقل من 100%.")
     breakeven = 100.0 / (1.0 + payout / 100.0)
-    expected_per_100 = (win_rate / 100.0 * payout) - (1.0 - win_rate / 100.0)
+    expected_per_100 = 100.0 * ((win_rate / 100.0 * payout) - (1.0 - win_rate / 100.0))
     recovery = (drawdown / (100.0 - drawdown) * 100.0) if drawdown else 0.0
     return {
         "payout_percent": payout,
