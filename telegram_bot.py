@@ -90,6 +90,7 @@ def main_keyboard():
         [InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance"),
          InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
         [InlineKeyboardButton("🧾 فاحص العائد ونقطة التعادل", callback_data="payout_calc")],
+        [InlineKeyboardButton("🧠 خطة ما قبل الصفقة — PRO", callback_data="pretrade")],
         [InlineKeyboardButton("💎 تقرير الأداء الأسبوعي — PRO", callback_data="weekly_report")],
         [InlineKeyboardButton("🛡️ حارس الانضباط", callback_data="discipline"),
          InlineKeyboardButton("🎓 أكاديمية التداول", callback_data="learn")],
@@ -603,6 +604,74 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_performance(q.message.chat_id, q.message)
     elif data == "weekly_report":
         await show_weekly_report(q.message.chat_id, q.message)
+    elif data == "pretrade":
+        status = access_status(q.message.chat_id)
+        if status["tier"] not in ("pro", "owner"):
+            await q.edit_message_text(
+                "🧠 خطة ما قبل الصفقة — ميزة PRO\\n\\n"
+                "تساعدك على مراجعة خطتك وانضباطك قبل اتخاذ القرار، ولا تقدم إشارات أو ضماناً للربح. "
+                "اشترك في PRO لفتح قائمة المراجعة.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💎 طلب PRO", callback_data="pro")],
+                    [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+                ])
+            )
+            return
+        context.user_data["pretrade_check"] = {"index": 0, "answers": []}
+        questions = [
+            "هل كتبت سبب الدخول بناءً على خطة محددة؟",
+            "هل تحققت من أن مبلغ المخاطرة ضمن حدك؟",
+            "هل تعرف مسبقاً متى ستخرج إذا أخطأت؟",
+            "هل تتجنب الدخول بسبب رغبة تعويض خسارة؟",
+            "هل السوق هادئ بما يكفي وفهمت ظروفه؟"
+        ]
+        context.user_data["pretrade_questions"] = questions
+        await q.edit_message_text(
+            "🧠 مراجعة ما قبل الصفقة (PRO)\\n\\n"
+            f"1/5 — {questions[0]}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("نعم ✓", callback_data="pretrade_answer:yes"),
+                 InlineKeyboardButton("لا ✗", callback_data="pretrade_answer:no")],
+                [InlineKeyboardButton("إلغاء", callback_data="home")]
+            ])
+        )
+    elif data.startswith("pretrade_answer:"):
+        check = context.user_data.get("pretrade_check")
+        questions = context.user_data.get("pretrade_questions", [])
+        if not check or check["index"] >= len(questions):
+            await q.edit_message_text("انتهت جلسة المراجعة. افتحها من القائمة مجدداً.", reply_markup=main_keyboard())
+            return
+        answer = data.split(":", 1)[1]
+        check["answers"].append(answer == "yes")
+        check["index"] += 1
+        index = check["index"]
+        if index < len(questions):
+            await q.edit_message_text(
+                f"🧠 مراجعة ما قبل الصفقة (PRO)\\n\\n{index+1}/5 — {questions[index]}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("نعم ✓", callback_data="pretrade_answer:yes"),
+                     InlineKeyboardButton("لا ✗", callback_data="pretrade_answer:no")],
+                    [InlineKeyboardButton("إلغاء", callback_data="home")]
+                ])
+            )
+        else:
+            yes_count = sum(check["answers"])
+            no_count = len(check["answers"]) - yes_count
+            verdict = ("مراجعتك مكتملة. التزم بخطتك ولا تعتبر النتيجة ضماناً." if no_count == 0
+                       else "توقف وراجع النقاط التي أجبت عنها بـ«لا» قبل اتخاذ أي قرار.")
+            await q.edit_message_text(
+                "🧠 نتيجة مراجعة ما قبل الصفقة (PRO)\\n\\n"
+                f"نقاط مستوفاة: {yes_count}/5\\n"
+                f"نقاط تحتاج مراجعة: {no_count}/5\\n\\n"
+                f"{verdict}\\n\\n"
+                "هذه قائمة انضباط تعليمية وليست توصية أو توقعاً للسوق. لا تدخل صفقة لمجرد إكمال القائمة.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 مراجعة جديدة", callback_data="pretrade")],
+                    [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+                ])
+            )
+            context.user_data.pop("pretrade_check", None)
+            context.user_data.pop("pretrade_questions", None)
     elif data == "payout_calc":
         context.user_data["awaiting_payout_input"] = True
         await q.edit_message_text(
