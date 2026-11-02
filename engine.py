@@ -18,7 +18,7 @@ OTCHARTS_BASE = "https://otcharts.com/v1"
 OTCHARTS_API_KEY = __import__("os").getenv("OTCHARTS_API_KEY", "").strip()
 OTC_TIMEFRAMES = {"1 دقيقة": 60, "5 دقائق": 300, "15 دقيقة": 900, "30 دقيقة": 1800, "ساعة": 3600, "4 ساعات": 14400}
 _OTC_SYMBOL_CACHE: dict[str, tuple[float, str]] = {}
-_OTC_SYMBOL_CACHE_TTL = 3600
+_OTC_SYMBOL_CACHE_TTL = 300
 
 
 TIMEFRAMES = {
@@ -417,7 +417,7 @@ def analyze_otc_poc(asset: str, symbol: str, timeframe: str) -> dict | None:
     if not math.isfinite(close+atr) or close <= 0 or atr <= 0:
         return None
     stop, target = (close-atr*1.2, close+atr*1.8) if direction == "صعود" else (close+atr*1.2, close-atr*1.8)
-    profile_label = "POC حجمي" if has_real_volume else "POC سعري تقريبي (حجم التداول غير متاح من المزود)"
+    profile_label = "POC تقريبي موزون بحجم الشموع" if has_real_volume else "POC سعري تقريبي (حجم التداول غير متاح من المزود)"
     reasons = f"إعادة اختبار {profile_label}، شمعة تأكيد، توافق EMA9/21/50، RSI={float(last['rsi']):.1f}"
     return asdict(Signal(
         asset=asset, symbol=symbol, market="Pocket Option OTC", timeframe=timeframe,
