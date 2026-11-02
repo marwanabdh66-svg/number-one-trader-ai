@@ -560,6 +560,12 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as exc:
             print(f"PRO admin notification failed: {type(exc).__name__}")
 
+async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"Telegram ID الخاص بحسابك: {update.effective_user.id}\\n"
+        "إذا كنت مالك البوت، ضع هذا الرقم في متغير الاستضافة OWNER_TELEGRAM_ID."
+    )
+
 async def substatus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
 
@@ -641,6 +647,7 @@ def main():
     app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("للدليل الإرشادي استخدم صيغة الزوج مع OTC، مثال AED/CNY OTC 5m. لا توجد بيانات سوق عادي ضمن الدليل.")))
     app.add_handler(CommandHandler("pro", pro_command))
     app.add_handler(CommandHandler("substatus", substatus_command))
+    app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("activate", activate_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("history", history_command))
