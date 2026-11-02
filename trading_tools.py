@@ -119,3 +119,31 @@ def calculate_risk(capital: float, risk_percent: float, stop_percent: float) -> 
         "risk_percent": risk_percent,
         "stop_percent": stop_percent,
     }
+
+
+def calculate_payout_edge(payout_percent: float, win_rate_percent: float,
+                          drawdown_percent: float = 0.0) -> dict:
+    """Calculate binary-payout break-even and equal-stake expectancy."""
+    payout = float(payout_percent)
+    win_rate = float(win_rate_percent)
+    drawdown = float(drawdown_percent)
+    if not all(math.isfinite(x) for x in (payout, win_rate, drawdown)):
+        raise ValueError("أدخل أرقاماً صحيحة.")
+    if not 1 <= payout <= 500:
+        raise ValueError("نسبة العائد يجب أن تكون بين 1% و500%.")
+    if not 0 <= win_rate <= 100:
+        raise ValueError("نسبة الفوز يجب أن تكون بين 0% و100%.")
+    if not 0 <= drawdown < 100:
+        raise ValueError("نسبة التراجع يجب أن تكون من 0% إلى أقل من 100%.")
+    breakeven = 100.0 / (1.0 + payout / 100.0)
+    expected_per_100 = (win_rate / 100.0 * payout) - (1.0 - win_rate / 100.0)
+    recovery = (drawdown / (100.0 - drawdown) * 100.0) if drawdown else 0.0
+    return {
+        "payout_percent": payout,
+        "win_rate_percent": win_rate,
+        "draw_even_win_rate": breakeven,
+        "expected_per_100_stakes": expected_per_100,
+        "drawdown_percent": drawdown,
+        "recovery_percent": recovery,
+        "edge_positive": win_rate > breakeven,
+    }
