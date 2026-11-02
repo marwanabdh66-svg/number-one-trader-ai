@@ -8,4 +8,4 @@ nixPkgs = ["python311", "python311Packages.pip", "gcc"]
 cmds = ["python311 -m pip --version", "python311 -m pip install --upgrade pip", "python311 -m pip install --no-cache-dir -r requirements.txt", "python311 -m pip install --no-cache-dir --upgrade 'openai>=1.40.0'", "python311 -c 'import openai; print(\"OpenAI package installed:\", openai.__version__)'"]
 
 [start]
-cmd = "python311 telegram_bot.py"
+cmd = "python311 -m pip install --no-cache-dir -r requirements.txt && python311 telegram_bot.py"
