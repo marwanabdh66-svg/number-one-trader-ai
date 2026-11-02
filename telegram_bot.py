@@ -88,6 +88,8 @@ def main_keyboard():
          InlineKeyboardButton("🧮 حاسبة المخاطر", callback_data="risk_calc")],
         [InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance"),
          InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
+        [InlineKeyboardButton("🛡️ حارس الانضباط", callback_data="discipline"),
+         InlineKeyboardButton("🎓 أكاديمية التداول", callback_data="learn")],
         [InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
         [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC — قريباً", callback_data="guide")],
         [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro"),
@@ -164,7 +166,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 دليل NUMBER ONE TRADER AI\n\n"
         "الدليل الإرشادي الذكي: قريباً — متوقف مؤقتاً حتى حل مشكلة مصدر بيانات OTC.\n\n"
-        "الأوامر: /start /journal /performance /risk /markets /analyze /history /reset /help\n"
+        "الأوامر: /start /journal /performance /risk /discipline /learn /markets /analyze /history /reset /help\n"
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
     )
@@ -216,6 +218,80 @@ async def show_performance(chat_id, message):
         )
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+    ]))
+
+
+
+LESSONS = {
+    "risk": {
+        "title": "إدارة المخاطر",
+        "body": "حدّد مقداراً صغيراً تخاطر به قبل الدخول، ولا ترفع النسبة لتعويض خسارة سابقة. لا توجد نسبة تضمن الربح.",
+        "question": "إذا كان رأس مالك 500 دولار واخترت مخاطرة 1%، فما المبلغ المعرض للخسارة؟",
+        "choices": [("5 دولارات", "5"), ("10 دولارات", "10"), ("50 دولاراً", "50")],
+        "correct": "5",
+        "explain": "1% من 500 = 5 دولارات. هذا حساب للمخاطرة وليس ضماناً لحد الخسارة."
+    },
+    "discipline": {
+        "title": "الانضباط النفسي",
+        "body": "تجنب التداول الانتقامي والإفراط في الصفقات. بعد خسارة مؤثرة خذ استراحة وراجع سبب الدخول.",
+        "question": "بعد خسارتين متتاليتين، ما التصرف الأكثر انضباطاً؟",
+        "choices": [("زيادة حجم الصفقة", "increase"), ("التوقف مؤقتاً ومراجعة الأسباب", "pause"), ("الدخول فوراً", "rush")],
+        "correct": "pause",
+        "explain": "الاستراحة ومراجعة السجل تساعد على منع قرارات التعويض المتسرعة."
+    },
+    "trend": {
+        "title": "الاتجاه والدعم والمقاومة",
+        "body": "الاتجاه الصاعد غالباً ما يظهر في قمم وقيعان أعلى، والهابط في قمم وقيعان أدنى. الدعم والمقاومة مناطق وليست ضماناً للارتداد.",
+        "question": "ما الوصف الأقرب للاتجاه الصاعد؟",
+        "choices": [("قمم وقيعان أعلى", "up"), ("قمم وقيعان أدنى", "down"), ("حركة بلا اتجاه", "flat")],
+        "correct": "up",
+        "explain": "تتابع القمم والقيعان الأعلى علامة شائعة على اتجاه صاعد، لكنه لا يضمن استمراره."
+    }
+}
+
+
+async def show_learning(chat_id, message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🧮 إدارة المخاطر", callback_data="lesson:risk")],
+        [InlineKeyboardButton("🧠 الانضباط النفسي", callback_data="lesson:discipline")],
+        [InlineKeyboardButton("📈 الاتجاه والدعم والمقاومة", callback_data="lesson:trend")],
+        [InlineKeyboardButton("🛡️ فحص انضباطي", callback_data="discipline")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+    ])
+    await message.reply_text(
+        "🎓 أكاديمية NUMBER ONE\\n\\nدروس قصيرة واختبارات تفاعلية في مهارات التداول. المحتوى تعليمي وليس توصية دخول.",
+        reply_markup=keyboard
+    )
+
+
+async def show_discipline(chat_id, message):
+    rows = get_trades(chat_id, 5)
+    if not rows:
+        text = "🛡️ حارس الانضباط\\n\\nلا توجد صفقات كافية في دفتر التداول لفحص سلوكك. سجّل نتائجك يدوياً ليظهر لك التنبيه."
+    else:
+        losses = sum(1 for row in rows if float(row["pnl"]) < 0)
+        streak = 0
+        for row in rows:
+            if float(row["pnl"]) < 0:
+                streak += 1
+            else:
+                break
+        text = (
+            "🛡️ حارس الانضباط — آخر خمس صفقات\\n\\n"
+            f"الخسائر ضمن آخر {len(rows)} صفقات: {losses}\\n"
+            f"الخسائر المتتالية من أحدث صفقة: {streak}\\n\\n"
+        )
+        if streak >= 2:
+            text += "⚠️ لديك خسارتان متتاليتان أو أكثر. خذ استراحة ولا ترفع حجم الصفقة للتعويض. راجع أسباب الدخول وحدود المخاطرة."
+        elif losses >= 3:
+            text += "⚠️ تكررت الخسائر في سجلك الأخير. راجع استراتيجيتك وفكّر في التوقف مؤقتاً."
+        else:
+            text += "لا يظهر نمط خسائر متتالية في السجل الحالي. واصل الالتزام بخطة المخاطرة."
+        text += "\\n\\nهذا الفحص تعليمي ويعتمد على النتائج التي أدخلتها يدوياً."
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal"),
+         InlineKeyboardButton("🎓 الأكاديمية", callback_data="learn")],
         [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
     ]))
 
@@ -350,6 +426,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "الدليل الإرشادي الذكي ومركز إشارات OTC: قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر البيانات.",
             reply_markup=main_keyboard()
         )
+    elif data == "learn":
+        await show_learning(q.message.chat_id, q.message)
+    elif data.startswith("lesson:"):
+        lesson_id = data.split(":", 1)[1]
+        lesson = LESSONS.get(lesson_id)
+        if not lesson:
+            await q.edit_message_text("الدرس غير متاح.", reply_markup=main_keyboard())
+        else:
+            buttons = [[InlineKeyboardButton(label, callback_data=f"quiz:{lesson_id}:{answer}")]
+                       for label, answer in lesson["choices"]]
+            buttons.append([InlineKeyboardButton("⬅️ الأكاديمية", callback_data="learn")])
+            await q.edit_message_text(
+                f"🎓 {lesson['title']}\\n\\n{lesson['body']}\\n\\n❓ {lesson['question']}",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+    elif data.startswith("quiz:"):
+        parts = data.split(":")
+        lesson = LESSONS.get(parts[1]) if len(parts) == 3 else None
+        if not lesson:
+            await q.edit_message_text("تعذر تحميل السؤال.", reply_markup=main_keyboard())
+        else:
+            correct = parts[2] == lesson["correct"]
+            result = "✅ إجابة صحيحة!" if correct else "❌ إجابة غير صحيحة."
+            await q.edit_message_text(
+                f"{result}\\n\\n{lesson['explain']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📚 درس آخر", callback_data="learn")],
+                    [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+                ])
+            )
+    elif data == "discipline":
+        await show_discipline(q.message.chat_id, q.message)
     elif data == "journal":
         await show_journal(q.message.chat_id, q.message)
     elif data == "journal_add":
@@ -853,6 +961,8 @@ def main():
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("journal", journal_command))
     app.add_handler(CommandHandler("performance", performance_command))
+    app.add_handler(CommandHandler("learn", lambda u, c: show_learning(u.effective_chat.id, u.message)))
+    app.add_handler(CommandHandler("discipline", lambda u, c: show_discipline(u.effective_chat.id, u.message)))
     app.add_handler(CommandHandler("risk", lambda u, c: risk_command(u, c)))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
