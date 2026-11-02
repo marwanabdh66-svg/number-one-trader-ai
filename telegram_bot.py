@@ -19,6 +19,7 @@ from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_e
 from subscriptions import (
     OWNER_ID, activate_pro, access_status, consume_trial_use, create_pro_request,
     ensure_user, init_subscriptions, pro_offer_text, subscription_message,
+    ai_credit_status, consume_ai_credit,
 )
 from trading_tools import (
     add_trade, get_trades, get_performance, calculate_risk, calculate_payout_edge, init_trading_tools,
@@ -897,9 +898,22 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if client is None:
         await update.message.reply_text(
             "المساعد الذكي غير مفعّل بعد. يلزم إضافة OPENAI_API_KEY إلى أسرار تشغيل البوت. "
-            "يمكنك استخدام أزرار تحليل الأسواق حالياً."
+            "لم يتم خصم أي رصيد من رسالتك."
         )
         return
+    credits = ai_credit_status(update.effective_chat.id)
+    if not consume_ai_credit(update.effective_chat.id):
+        await update.message.reply_text(
+            "⛔ انتهى رصيدك المجاني للمساعد الذكي اليوم ("
+            + str(credits["limit"]) + " رسائل يومياً).\n\n"
+            "💎 يمنحك PRO استخداماً غير محدود للمساعد الذكي، بالإضافة إلى تقرير الأداء الأسبوعي. "
+            "اكتب /pro لطلب الاشتراك. يتجدد رصيدك المجاني غداً.",
+            reply_markup=main_keyboard()
+        )
+        return
+    credits_after = ai_credit_status(update.effective_chat.id)
+    allowance_note = ("استخدام غير محدود — PRO" if credits_after["unlimited"]
+                      else f"الرصيد المجاني المتبقي اليوم: {credits_after['remaining']}/{credits_after['limit']}")
     history = context.user_data.setdefault("ai_history", [])
     history.append({"role": "user", "content": update.message.text[:4000]})
     history = history[-12:]
@@ -910,7 +924,7 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer = "لم يصلني رد نصي. حاول مرة أخرى."
         history.append({"role": "assistant", "content": answer})
         context.user_data["ai_history"] = history[-12:]
-        await send_long(update.message, answer)
+        await send_long(update.message, answer + "\\n\\n" + "💠 " + allowance_note)
     except Exception as exc:
         print(f"OpenAI request failed: {type(exc).__name__}")
         await update.message.reply_text(
