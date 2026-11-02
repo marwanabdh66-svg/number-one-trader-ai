@@ -134,3 +134,50 @@ def pro_offer_text(request_id: int) -> str:
     return (f"💎 طلب اشتراك NUMBER ONE PRO\nرقم الطلب: #{request_id}\n\n"
             f"{PRO_PRICE_TEXT}\n\n{payment}\n\n"
             "بعد الدفع أرسل إثبات التحويل إلى إدارة البوت. لا ترسل كلمة مرور حسابك أو مفاتيحك السرية.")
+
+
+AI_FREE_DAILY_CREDITS = int(os.getenv("AI_FREE_DAILY_CREDITS", "5"))
+
+def ai_credit_status(chat_id: int) -> dict:
+    """Daily AI chat allowance: free users get configured credits; PRO and owner are unlimited."""
+    tier = access_status(chat_id)["tier"]
+    if tier in ("owner", "pro"):
+        return {"tier": tier, "remaining": None, "limit": None, "unlimited": True}
+    ensure_user(chat_id)
+    day = _now().date().isoformat()
+    con = _db()
+    con.execute("""CREATE TABLE IF NOT EXISTS ai_daily_credits (
+        chat_id INTEGER NOT NULL,
+        credit_date TEXT NOT NULL,
+        used INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(chat_id, credit_date)
+    )""")
+    row = con.execute(
+        "SELECT used FROM ai_daily_credits WHERE chat_id=? AND credit_date=?",
+        (chat_id, day)
+    ).fetchone()
+    used = int(row["used"]) if row else 0
+    con.close()
+    return {"tier": tier, "remaining": max(0, AI_FREE_DAILY_CREDITS - used),
+            "limit": AI_FREE_DAILY_CREDITS, "unlimited": False}
+
+def consume_ai_credit(chat_id: int) -> bool:
+    """Consume one daily AI message credit, or allow unlimited PRO/owner access."""
+    status = ai_credit_status(chat_id)
+    if status["unlimited"]:
+        return True
+    if status["remaining"] <= 0:
+        return False
+    day = _now().date().isoformat()
+    con = _db()
+    con.execute("""CREATE TABLE IF NOT EXISTS ai_daily_credits (
+        chat_id INTEGER NOT NULL,
+        credit_date TEXT NOT NULL,
+        used INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(chat_id, credit_date)
+    )""")
+    con.execute("""INSERT INTO ai_daily_credits(chat_id,credit_date,used) VALUES(?,?,1)
+        ON CONFLICT(chat_id,credit_date) DO UPDATE SET used=used+1""", (chat_id, day))
+    con.commit()
+    con.close()
+    return True
