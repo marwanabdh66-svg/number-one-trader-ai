@@ -14,6 +14,10 @@ import requests
 import yfinance as yf
 
 BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+OTCHARTS_BASE = "https://otcharts.com/v1"
+OTCHARTS_API_KEY = __import__("os").getenv("OTCHARTS_API_KEY", "").strip()
+OTC_TIMEFRAMES = {"1 دقيقة": 60, "5 دقائق": 300, "15 دقيقة": 900, "30 دقيقة": 1800, "ساعة": 3600, "4 ساعات": 14400}
+
 
 TIMEFRAMES = {
     "1 دقيقة": ("1m", "1m"),
@@ -71,6 +75,34 @@ def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
 
 def fetch_market_data(symbol: str, timeframe_label: str, period: str = "5d") -> tuple[pd.DataFrame, str]:
     """Fetch candles. Return (OHLCV, source label)."""
+    # Pocket Option OTC feed through a third-party read-only API.
+    if symbol.endswith("_otc"):
+        if not OTCHARTS_API_KEY:
+            return pd.DataFrame(), "OTCharts (مفتاح API غير مضبوط)"
+        try:
+            tf_seconds = OTC_TIMEFRAMES.get(timeframe_label, 300)
+            response = requests.get(
+                f"{OTCHARTS_BASE}/candles",
+                params={"venue": "otc", "symbol": symbol, "tf": tf_seconds, "limit": 300},
+                headers={"Authorization": f"Bearer {OTCHARTS_API_KEY}", "User-Agent": "NUMBER-ONE-TRADER-AI/1.0"},
+                timeout=15,
+            )
+            response.raise_for_status()
+            candles = response.json().get("candles", [])
+            if not candles:
+                return pd.DataFrame(), "OTCharts (لا توجد شموع)"
+            frame = pd.DataFrame(candles).rename(columns={"time": "timestamp"})
+            if "timestamp" in frame.columns:
+                frame.index = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
+            return _normalize(frame), "OTCharts Pocket Option OTC"
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            print(f"OTCharts OTC request failed: HTTP {status}")
+            return pd.DataFrame(), f"OTCharts (HTTP {status})"
+        except Exception as exc:
+            print(f"OTCharts OTC request failed: {type(exc).__name__}")
+            return pd.DataFrame(), "OTCharts (غير متاح)"
+
     interval, yahoo_interval = TIMEFRAMES[timeframe_label]
     if symbol.endswith("USDT") and "/" not in symbol:
         try:
@@ -107,6 +139,30 @@ def fetch_market_data(symbol: str, timeframe_label: str, period: str = "5d") -> 
         return frame, "Yahoo Finance"
     except Exception:
         return pd.DataFrame(), "غير متاح"
+
+def resolve_otc_symbol(pair: str) -> str | None:
+    """Resolve pair against the API's live Pocket Option symbol catalogue."""
+    if not OTCHARTS_API_KEY:
+        return None
+    normalized = pair.upper().replace("/", "").replace("-", "").replace(" ", "")
+    try:
+        response = requests.get(
+            f"{OTCHARTS_BASE}/symbols",
+            params={"venue": "otc"},
+            headers={"Authorization": f"Bearer {OTCHARTS_API_KEY}", "User-Agent": "NUMBER-ONE-TRADER-AI/1.0"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        for item in response.json().get("symbols", []):
+            symbol = str(item.get("symbol", ""))
+            name = str(item.get("name", "")).upper().replace("/", "").replace(" ", "").replace("OTC", "")
+            symbol_normalized = symbol.upper().replace("_OTC", "").replace("/", "").replace("-", "")
+            if normalized == name or normalized == symbol_normalized:
+                return symbol
+    except Exception as exc:
+        print(f"OTCharts symbol catalogue failed: {type(exc).__name__}")
+    return None
+
 
 def calculate_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     data = _normalize(frame)
