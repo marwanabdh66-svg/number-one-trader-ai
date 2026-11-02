@@ -81,6 +81,7 @@ def main_keyboard():
          InlineKeyboardButton("📈 حالة التداول الآلي", callback_data="auto_status")],
         [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
          InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
+        [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي", callback_data="guide")],
         [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
          InlineKeyboardButton("❔ المساعدة", callback_data="help")],
     ]
@@ -340,6 +341,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⏱️ تغيير الفاصل الافتراضي", callback_data="change_tf")],
                 [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data == "guide":
+        await q.edit_message_text(
+            "🧭 الدليل الإرشادي الذكي\n\n"
+            "أرسل زوج التداول في رسالة واحدة بهذا الشكل:\n"
+            "AED/CNY OTC 5m\n\n"
+            "ويمكنك تغيير الزوج والفاصل الزمني. الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n\n"
+            "سيحلل البوت بيانات السوق المتاحة ويعرض الاتجاه صعوداً أو هبوطاً، أو يخبرك إذا لم تتوفر بيانات كافية.\n"
+            "ملاحظة: تحليل أزواج OTC يتطلب تفعيل مصدر بيانات OTC ومفتاحه في إعدادات الاستضافة.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📊 تحليل الأسواق العادية", callback_data="markets")],
+                [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]
             ])
         )
     elif data == "assistant":
