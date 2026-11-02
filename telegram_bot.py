@@ -640,6 +640,14 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "تعذر الاتصال بالمساعد الذكي الآن. تحقق من إعداد مفتاح الخدمة ورصيد واجهة API."
         )
 
+async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_journal(update.effective_chat.id, update.message)
+
+
+async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_performance(update.effective_chat.id, update.message)
+
+
 async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 3:
         context.user_data["awaiting_risk_input"] = True
@@ -843,8 +851,8 @@ def main():
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("activate", activate_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
-    app.add_handler(CommandHandler("journal", lambda u, c: show_journal(u.effective_chat.id, u.message)))
-    app.add_handler(CommandHandler("performance", lambda u, c: show_performance(u.effective_chat.id, u.message)))
+    app.add_handler(CommandHandler("journal", journal_command))
+    app.add_handler(CommandHandler("performance", performance_command))
     app.add_handler(CommandHandler("risk", lambda u, c: risk_command(u, c)))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
