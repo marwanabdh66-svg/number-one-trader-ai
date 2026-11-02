@@ -13,9 +13,13 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-from engine import ASSETS, TIMEFRAMES, analyze_asset, resolve_otc_symbol
+from engine import ASSETS, TIMEFRAMES, analyze_asset, analyze_otc_poc, resolve_otc_symbol
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
 from signal_monitor import init_signal_monitor, set_signal_watch, signal_watch_enabled, scan_signal_watchers
+from subscriptions import (
+    OWNER_ID, activate_pro, access_status, consume_trial_use, create_pro_request,
+    ensure_user, init_subscriptions, pro_offer_text, subscription_message,
+)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -81,7 +85,9 @@ def main_keyboard():
          InlineKeyboardButton("📈 حالة التداول الآلي", callback_data="auto_status")],
         [InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history"),
          InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
-        [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي", callback_data="guide")],
+        [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC", callback_data="guide")],
+        [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro"),
+         InlineKeyboardButton("📋 حالة اشتراكي", callback_data="substatus")],
         [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="assistant"),
          InlineKeyboardButton("❔ المساعدة", callback_data="help")],
     ]
@@ -147,7 +153,8 @@ async def send_long(message, text):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("timeframe", "5 دقائق")
-    await update.message.reply_text(HELP_TEXT, reply_markup=main_keyboard())
+    ensure_user(update.effective_chat.id)
+    await update.message.reply_text(HELP_TEXT + "\\n\\n" + subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -345,17 +352,39 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "guide":
         await q.edit_message_text(
-            "🧭 الدليل الإرشادي الذكي\n\n"
-            "أرسل زوج التداول في رسالة واحدة بهذا الشكل:\n"
-            "AED/CNY OTC 5m\n\n"
-            "ويمكنك تغيير الزوج والفاصل الزمني. الفواصل المتاحة: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\n\n"
-            "للتدريب على العملات الرقمية أرسل مثلاً BTC/USDT أو ETH/USDT 5m.\n" +
-            "هذه بيانات سوق Binance العامة وليست أسعار Pocket Option OTC.\n" +
-            "سيعرض البوت الاتجاه فقط عند توفر بيانات كافية، وإلا سيخبرك بعدم وجود إشارة.\n"
-            "ملاحظة: تحليل أزواج OTC يتطلب تفعيل مصدر بيانات OTC ومفتاحه في إعدادات الاستضافة.",
+            "🧭 الدليل الإرشادي الذكي — Pocket Option OTC فقط\\n\\n"
+            "أرسل الزوج بهذه الصيغة: AED/CNY OTC 5m\\n"
+            "الفواصل: 1m أو 5m أو 15m أو 30m أو 1h أو 4h.\\n\\n"
+            "المصدر الوحيد هنا هو شموع Pocket Option OTC عبر OTCharts. "
+            "لن أستخدم Binance أو Yahoo أو أسعار الفوركس العادية بديلاً عنها. "
+            "إذا تعذر مصدر OTC فلن يصدر البوت سهماً.\\n\\n"
+            + subscription_message(q.message.chat_id),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📊 تحليل الأسواق العادية", callback_data="markets")],
+                [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro")],
+                [InlineKeyboardButton("📋 حالة الاشتراك", callback_data="substatus")],
                 [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="home")]
+            ])
+        )
+    elif data == "pro":
+        request_id = create_pro_request(q.message.chat_id)
+        await q.edit_message_text(
+            pro_offer_text(request_id),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]])
+        )
+        if OWNER_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(OWNER_ID),
+                    text=f"طلب اشتراك PRO جديد #{request_id} من المستخدم {q.message.chat_id}. للتفعيل: /activate {q.message.chat_id} 30"
+                )
+            except Exception as exc:
+                print(f"PRO admin notification failed: {type(exc).__name__}")
+    elif data == "substatus":
+        await q.edit_message_text(
+            subscription_message(q.message.chat_id),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 طلب PRO", callback_data="pro")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
             ])
         )
     elif data == "assistant":
@@ -385,77 +414,58 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    # Accept direct pair messages such as EUR/USD or EUR/USD 5m.
-    # Pocket Option OTC prices are not available from the current market-data feeds.
+    # OTC-only guide: never substitute ordinary Forex, Yahoo or crypto data.
     if not context.user_data.get("awaiting_auto_capital"):
         raw_text = update.message.text.strip().upper()
         import re
-        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\s*[/\-]\s*([A-Z0-9]{2,10})(?:\s+(OTC))?(?:\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
+        pair_match = re.fullmatch(r"([A-Z0-9]{2,10})\\s*[/\\-]\\s*([A-Z0-9]{2,10})\\s+OTC(?:\\s+(1M|5M|15M|30M|1H|4H))?", raw_text)
         if pair_match:
-            base, quote, otc, requested_tf = pair_match.groups()
+            base, quote, requested_tf = pair_match.groups()
             pair = f"{base}/{quote}"
-            if otc:
-                otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
-                if not otc_symbol:
-                    await update.message.reply_text(
-                        f"⚠️ بيانات {pair} OTC غير متاحة حالياً.\n"
-                        "أعاد مزود OTCharts الخطأ HTTP 402 وأوضح أن الوصول المجاني متوقف حالياً "
-                        "وأن بياناته تتطلب خطة مدفوعة. هذا ليس دليلاً على أن مفتاحك مفقود.\n\n"
-                        "لن أرسل سهم صعود أو هبوط دون شموع OTC فعلية موثوقة. "
-                        "يمكنك استخدام تحليل الأسواق العادية للتدريب فقط، لكنه لا يمثل أسعار Pocket Option OTC.",
-                        reply_markup=main_keyboard()
-                    )
-                    return
-                found = (f"{pair} OTC", otc_symbol, "Pocket Option OTC")
-                timeframe_code = requested_tf.lower() if requested_tf else "5m"
-                label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), "5 دقائق")
-                await update.message.reply_text(f"⏳ تم ربط {pair} OTC بمصدر بيانات OTC. جارٍ التحليل على فاصل {label}...")
-                try:
-                    result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
-                except Exception:
-                    result = None
-                if not result:
-                    await update.message.reply_text(
-                        "وصلت إلى مصدر OTC لكن لم تتوفر شموع كافية أو إشارة واضحة. "
-                        "لن أُصدر توقعاً بلا بيانات كافية.",
-                        reply_markup=main_keyboard()
-                    )
-                    return
-                save_signal(update.effective_chat.id, result)
-                await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
-                return
-
-            found = None
-            for market, items in ASSETS.items():
-                for name, symbol in items.items():
-                    if name.upper().replace(" ", "") == pair.replace("/", "") or symbol.upper().replace("=X", "").replace("/", "") == pair.replace("/", ""):
-                        found = (name, symbol, market)
-                        break
-                if found:
-                    break
-            if not found:
+            status = access_status(update.effective_chat.id)
+            if not status["allowed"]:
                 await update.message.reply_text(
-                    f"⚠️ استلمت الزوج {pair}، لكنه غير موجود ضمن الأصول المدعومة حالياً. "
-                    "لن أُصدر إشارة دون بيانات سوق فعلية.",
+                    subscription_message(update.effective_chat.id) + "\\n\\nاكتب /pro لطلب الاشتراك. "
+                    "لن يتم استخدام أي مصدر سوق عادي بدلاً من بيانات OTC.",
                     reply_markup=main_keyboard()
                 )
                 return
-
+            if not consume_trial_use(update.effective_chat.id):
+                await update.message.reply_text(subscription_message(update.effective_chat.id) + "\\nاكتب /pro لتفعيل PRO.")
+                return
+            otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
+            if not otc_symbol:
+                await update.message.reply_text(
+                    f"⚠️ لم أتمكن من جلب رمز {pair} من كتالوج Pocket Option OTC.\\n"
+                    "قد يكون الرمز غير مدعوم في باقة OTCharts أو أن المفتاح/الحصة غير متاحين. "
+                    "لن أستخدم أسعار Forex أو Binance كبديل ولن أخمّن رمزاً.",
+                    reply_markup=main_keyboard()
+                )
+                return
             timeframe_code = requested_tf.lower() if requested_tf else "5m"
             label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), "5 دقائق")
-            await update.message.reply_text(f"⏳ تم استلام {pair}. جارٍ تحليل البيانات المتاحة على فاصل {label}...")
+            await update.message.reply_text(f"⏳ جارٍ فحص شموع Pocket Option OTC للزوج {pair} على {label}...")
             try:
-                result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
-            except Exception:
+                result = await asyncio.to_thread(analyze_otc_poc, f"{pair} OTC", otc_symbol, label)
+            except Exception as exc:
+                print(f"OTC POC analysis failed: {type(exc).__name__}")
                 result = None
             if not result:
                 await update.message.reply_text(
-                    "لم تتوفر بيانات كافية أو إشارة واضحة لهذا الزوج حالياً. جرّب لاحقاً أو غيّر الفاصل.",
+                    "لم تتكوّن إشارة OTC مؤكدة الآن: نحتاج شموعاً كافية، وإعادة اختبار POC، "
+                    "وشمعة تأكيد، وتوافق الاتجاه. عدم ظهور سهم أفضل من تخمين اتجاه.",
                     reply_markup=main_keyboard()
                 )
                 return
             save_signal(update.effective_chat.id, result)
             await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
+            return
+        if re.fullmatch(r"[A-Z0-9]{2,10}\\s*[/\\-]\\s*[A-Z0-9]{2,10}(?:\\s+(?:1M|5M|15M|30M|1H|4H))?", raw_text):
+            await update.message.reply_text(
+                "للدليل الإرشادي أرسل الزوج مع OTC صراحةً، مثال: AED/CNY OTC 5m. "
+                "لن أحلل الزوج من سوق عادي.",
+                reply_markup=main_keyboard()
+            )
             return
     if context.user_data.get("awaiting_auto_capital"):
         raw = update.message.text.strip().replace(",", "")
@@ -511,38 +521,32 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("مثال: /analyze BTCUSDT 5m")
+    raw = " ".join(context.args).upper().strip()
+    import re
+    match = re.fullmatch(r"([A-Z0-9]{2,10})\\s*[/\\-]\\s*([A-Z0-9]{2,10})\\s+OTC(?:\\s+(1M|5M|15M|30M|1H|4H))?", raw)
+    if not match:
+        await update.message.reply_text("الاستخدام: /analyze AED/CNY OTC 5m — يقبل الدليل أزواج Pocket Option OTC فقط.")
         return
-    requested = context.args[0].upper()
-    found = None
-    for market, items in ASSETS.items():
-        for name, symbol in items.items():
-            if requested in (name.upper(), symbol.upper()):
-                found = (name, symbol, market)
-                break
-        if found:
-            break
-    if not found:
-        await update.message.reply_text("الأصل غير معروف. استخدم /markets.")
+    base, quote, requested_tf = match.groups()
+    status = access_status(update.effective_chat.id)
+    if not status["allowed"] or not consume_trial_use(update.effective_chat.id):
+        await update.message.reply_text(subscription_message(update.effective_chat.id) + "\\nاكتب /pro لطلب PRO.")
         return
-    timeframe_code = context.args[1] if len(context.args) > 1 else "5m"
-    label = next((k for k, (code, _) in TIMEFRAMES.items() if code == timeframe_code), None)
-    if not label:
-        await update.message.reply_text("الفواصل: 1m، 5m، 15m، 30m، 1h، 4h")
+    pair = f"{base}/{quote}"
+    symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
+    if not symbol:
+        await update.message.reply_text("تعذر العثور على الزوج في كتالوج Pocket Option OTC. لم يتم استخدام مصدر بديل.")
         return
-    context.user_data["asset"] = found
-    context.user_data["timeframe"] = label
-    await update.message.reply_text("⏳ جارٍ التحليل...")
-    try:
-        result = await asyncio.to_thread(analyze_asset, *found, label, "جميع الإشارات")
-    except Exception:
-        result = None
+    tf = requested_tf.lower() if requested_tf else "5m"
+    label = next((k for k, (code, _) in TIMEFRAMES.items() if code == tf), "5 دقائق")
+    await update.message.reply_text(f"جارٍ تحليل Pocket Option OTC: {pair} على {label}...")
+    result = await asyncio.to_thread(analyze_otc_poc, f"{pair} OTC", symbol, label)
     if not result:
-        await update.message.reply_text("لا توجد إشارة واضحة أو البيانات غير متاحة الآن.")
+        await update.message.reply_text("لا توجد إشارة مؤكدة الآن؛ لم يتحقق شرط POC وإغلاق شمعة التأكيد.")
         return
     save_signal(update.effective_chat.id, result)
     await update.message.reply_text(signal_text(result), reply_markup=main_keyboard())
+
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_history(update.effective_chat.id, update.message)
@@ -589,6 +593,67 @@ async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("ai_history", None)
     await update.message.reply_text("تم مسح سياق المحادثة.", reply_markup=main_keyboard())
 
+
+async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    request_id = create_pro_request(update.effective_chat.id)
+    await update.message.reply_text(pro_offer_text(request_id), reply_markup=main_keyboard())
+    if OWNER_ID:
+        try:
+            await context.bot.send_message(
+                chat_id=int(OWNER_ID),
+                text=f"طلب اشتراك PRO جديد #{request_id} من المستخدم {update.effective_chat.id}. للتفعيل: /activate {update.effective_chat.id} 30"
+            )
+        except Exception as exc:
+            print(f"PRO admin notification failed: {type(exc).__name__}")
+
+async def substatus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(subscription_message(update.effective_chat.id), reply_markup=main_keyboard())
+
+async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not OWNER_ID or str(update.effective_user.id) != OWNER_ID:
+        await update.message.reply_text("هذا الأمر مخصص لمالك البوت فقط.")
+        return
+    if not context.args or len(context.args) not in (1, 2):
+        await update.message.reply_text("الاستخدام: /activate TELEGRAM_ID [DAYS] — مثال /activate 123456789 30")
+        return
+    try:
+        target_id = int(context.args[0])
+        days = int(context.args[1]) if len(context.args) == 2 else 30
+        until = activate_pro(target_id, days)
+    except (ValueError, TypeError) as exc:
+        await update.message.reply_text(f"تعذر التفعيل: {exc}")
+        return
+    await update.message.reply_text(f"تم تفعيل PRO للمستخدم {target_id} حتى {until.strftime('%Y-%m-%d %H:%M UTC')}.")
+    try:
+        await context.bot.send_message(chat_id=target_id, text=f"💎 تم تفعيل اشتراك NUMBER ONE PRO لمدة {days} يوماً.\nينتهي في {until.strftime('%Y-%m-%d %H:%M UTC')}.")
+    except Exception as exc:
+        print(f"PRO activation notice failed: {type(exc).__name__}")
+
+async def payment_photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.photo:
+        return
+    if not OWNER_ID:
+        await update.message.reply_text("استلام إثبات الدفع غير مهيأ بعد. يرجى التواصل مع إدارة البوت.")
+        return
+    user = update.effective_user
+    caption = (
+        "📥 إثبات دفع اشتراك PRO\\n"
+        f"المستخدم: {user.full_name}\\n"
+        f"Telegram ID: {update.effective_chat.id}\\n"
+        f"Username: @{user.username or 'غير متاح'}\\n"
+        "راجع التحويل ثم فعّل الاشتراك بالأمر: /activate TELEGRAM_ID 30"
+    )
+    try:
+        await context.bot.send_message(chat_id=int(OWNER_ID), text=caption)
+        await context.bot.forward_message(
+            chat_id=int(OWNER_ID), from_chat_id=update.effective_chat.id,
+            message_id=update.message.message_id
+        )
+        await update.message.reply_text("تم إرسال إثبات الدفع إلى إدارة البوت للمراجعة. لن يتفعل الاشتراك إلا بعد التحقق اليدوي.")
+    except Exception as exc:
+        print(f"Payment proof forwarding failed: {type(exc).__name__}")
+        await update.message.reply_text("تعذر إرسال الإثبات للإدارة الآن. حاول لاحقاً.")
+
 async def auto_trading_worker(app):
     init_auto_db()
     while True:
@@ -615,10 +680,14 @@ def main():
     init_db()
     init_auto_db()
     init_signal_monitor()
+    init_subscriptions()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("اختر السوق:", reply_markup=markets_keyboard())))
+    app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("للدليل الإرشادي استخدم صيغة الزوج مع OTC، مثال AED/CNY OTC 5m. لا توجد بيانات سوق عادي ضمن الدليل.")))
+    app.add_handler(CommandHandler("pro", pro_command))
+    app.add_handler(CommandHandler("substatus", substatus_command))
+    app.add_handler(CommandHandler("activate", activate_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("auto", lambda u, c: u.message.reply_text("افتح زر التداول الآلي من القائمة الرئيسية.", reply_markup=main_keyboard())))
@@ -627,6 +696,7 @@ def main():
     app.add_handler(CommandHandler("stop", stop_auto_command))
     app.add_handler(CommandHandler("reset", reset_chat))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.PHOTO, payment_photo_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("NUMBER ONE TRADER AI Telegram bot is running.")
     print("AI assistant enabled." if client else "AI assistant disabled: OPENAI_API_KEY missing.")
