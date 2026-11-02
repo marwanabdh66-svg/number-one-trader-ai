@@ -1,11 +1,12 @@
 [variables]
-NIXPACKS_PYTHON_PACKAGE_MANAGER = "skip"
+# Let Nixpacks manage Python dependencies from requirements.txt.
+NIXPACKS_PYTHON_PACKAGE_MANAGER = "pip"
 
 [phases.setup]
 nixPkgs = ["python311", "python311Packages.pip", "gcc"]
 
 [phases.install]
-cmds = ["python311 -m pip --version", "python311 -m pip install --upgrade pip", "python311 -m pip install --no-cache-dir -r requirements.txt", "python311 -m pip install --no-cache-dir --upgrade 'openai>=1.40.0'", "python311 -c 'import openai; print(\"OpenAI package installed:\", openai.__version__)'"]
+cmds = ["pip --version", "pip install --upgrade pip", "pip install --no-cache-dir -r requirements.txt", "python -c 'import telegram, openai; print(\"Dependencies installed successfully\")'"]
 
 [start]
-cmd = "python311 -m pip install --no-cache-dir -r requirements.txt && python311 telegram_bot.py"
+cmd = "python telegram_bot.py"
