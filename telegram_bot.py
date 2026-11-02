@@ -21,7 +21,7 @@ from subscriptions import (
     ensure_user, init_subscriptions, pro_offer_text, subscription_message,
 )
 from trading_tools import (
-    add_trade, get_trades, get_performance, calculate_risk, init_trading_tools,
+    add_trade, get_trades, get_performance, calculate_risk, calculate_payout_edge, init_trading_tools,
 )
 
 
@@ -88,6 +88,7 @@ def main_keyboard():
          InlineKeyboardButton("🧮 حاسبة المخاطر", callback_data="risk_calc")],
         [InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance"),
          InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
+        [InlineKeyboardButton("🧾 فاحص العائد ونقطة التعادل", callback_data="payout_calc")],
         [InlineKeyboardButton("🛡️ حارس الانضباط", callback_data="discipline"),
          InlineKeyboardButton("🎓 أكاديمية التداول", callback_data="learn")],
         [InlineKeyboardButton("👤 حسابي الشخصي", callback_data="my_account")],
@@ -536,6 +537,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("أرسل سعر الدخول بالأرقام فقط، مثال: 1.0850")
     elif data == "performance":
         await show_performance(q.message.chat_id, q.message)
+    elif data == "payout_calc":
+        context.user_data["awaiting_payout_input"] = True
+        await q.edit_message_text(
+            "🧾 فاحص العائد ونقطة التعادل — مجاني ويعمل دون بيانات سوق\n\n"
+            "أرسل ثلاثة أرقام بهذا الترتيب: نسبة العائد% نسبة صفقاتك الرابحة% نسبة تراجع الحساب%\n"
+            "مثال: 85 55 20\n\n"
+            "إذا لم تعرف نسبة الفوز أو التراجع، أدخل 0. الحساب افتراضي لكل 100 صفقة متساوية المبلغ، ولا يتنبأ بنتائجك."
+        )
     elif data == "risk_calc":
         context.user_data["awaiting_risk_input"] = True
         await q.edit_message_text(
@@ -611,6 +620,38 @@ async def ask_openai(history):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
+        return
+
+    # فاحص العائد ونقطة التعادل — لا يحتاج API أو بيانات سوق.
+    if context.user_data.get("awaiting_payout_input"):
+        try:
+            parts = update.message.text.replace(",", ".").split()
+            if len(parts) != 3:
+                raise ValueError("أرسل ثلاثة أرقام بهذا الترتيب: العائد% نسبة الفوز% التراجع%.")
+            result = calculate_payout_edge(float(parts[0]), float(parts[1]), float(parts[2]))
+        except ValueError as exc:
+            await update.message.reply_text(str(exc) or "صيغة الإدخال غير صحيحة. مثال: 85 55 20")
+            return
+        context.user_data["awaiting_payout_input"] = False
+        edge = "أعلى من نقطة التعادل حسابياً" if result["edge_positive"] else "لا تتجاوز نقطة التعادل حسابياً"
+        ev = result["expected_per_100_stakes"]
+        recovery = result["recovery_percent"]
+        await update.message.reply_text(
+            "🧾 نتيجة فاحص العائد\n\n"
+            f"العائد عند الفوز: {result['payout_percent']:.2f}%\n"
+            f"نسبة الفوز المدخلة: {result['win_rate_percent']:.2f}%\n"
+            f"نسبة الفوز اللازمة للتعادل: {result['draw_even_win_rate']:.2f}%\n"
+            f"تقييم الأرقام المدخلة: {edge}\n"
+            f"النتيجة النظرية لكل 100 وحدة مخاطرة: {ev:+.2f} وحدة\n"
+            f"تراجع الحساب: {result['drawdown_percent']:.2f}%\n"
+            f"العائد المطلوب لاستعادة التراجع: {recovery:.2f}%\n\n"
+            "⚠️ مثال حسابي مبسط يفترض عائداً ثابتاً ومبالغ متساوية، ولا يشمل تغير العائد أو الرسوم أو الانزلاق أو اختلاف التنفيذ. نسبة الفوز المدخلة يجب أن تكون من سجل حقيقي كافٍ، وليست توقعاً.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🧾 فحص جديد", callback_data="payout_calc")],
+                [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
         return
 
     # خطوات تسجيل الصفقة اليدوية وحاسبة المخاطر — متاحة مجاناً.
