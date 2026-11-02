@@ -80,7 +80,7 @@ def smart_guide(request: str, timeframe: str = "5 دقائق") -> str:
     high = float(profile["high"].max())
     poc = None
     if high > low:
-        bins =  thirty = 30
+        bins = 30
         width = (high - low) / bins
         volumes = [0.0] * bins
         for _, candle in profile.iterrows():
