@@ -902,18 +902,15 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     credits = ai_credit_status(update.effective_chat.id)
-    if not consume_ai_credit(update.effective_chat.id):
+    if not credits["unlimited"] and credits["remaining"] <= 0:
         await update.message.reply_text(
             "⛔ انتهى رصيدك المجاني للمساعد الذكي اليوم ("
-            + str(credits["limit"]) + " رسائل يومياً).\n\n"
+            + str(credits["limit"]) + " رسائل يومياً).\\n\\n"
             "💎 يمنحك PRO استخداماً غير محدود للمساعد الذكي، بالإضافة إلى تقرير الأداء الأسبوعي. "
             "اكتب /pro لطلب الاشتراك. يتجدد رصيدك المجاني غداً.",
             reply_markup=main_keyboard()
         )
         return
-    credits_after = ai_credit_status(update.effective_chat.id)
-    allowance_note = ("استخدام غير محدود — PRO" if credits_after["unlimited"]
-                      else f"الرصيد المجاني المتبقي اليوم: {credits_after['remaining']}/{credits_after['limit']}")
     history = context.user_data.setdefault("ai_history", [])
     history.append({"role": "user", "content": update.message.text[:4000]})
     history = history[-12:]
@@ -922,6 +919,15 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         answer = await ask_openai(history)
         if not answer:
             answer = "لم يصلني رد نصي. حاول مرة أخرى."
+        if not consume_ai_credit(update.effective_chat.id):
+            await update.message.reply_text(
+                "نفد رصيدك المجاني أثناء معالجة الطلب. اكتب /pro لطلب اشتراك PRO.",
+                reply_markup=main_keyboard()
+            )
+            return
+        credits_after = ai_credit_status(update.effective_chat.id)
+        allowance_note = ("استخدام غير محدود — PRO" if credits_after["unlimited"]
+                          else f"الرصيد المجاني المتبقي اليوم: {credits_after['remaining']}/{credits_after['limit']}")
         history.append({"role": "assistant", "content": answer})
         context.user_data["ai_history"] = history[-12:]
         await send_long(update.message, answer + "\\n\\n" + "💠 " + allowance_note)
