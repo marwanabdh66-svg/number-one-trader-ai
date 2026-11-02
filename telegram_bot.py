@@ -9,9 +9,10 @@ try:
 except ImportError:
     OpenAI = None  # The bot can still run without the optional AI assistant.
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationHandlerStop
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ContextTypes, filters
+    ContextTypes, TypeHandler, filters
 )
 from engine import ASSETS, TIMEFRAMES, analyze_asset, analyze_otc_poc, resolve_otc_symbol
 from auto_trader import init_auto_db, start_session, stop_session, format_status, run_cycle, get_trade_history
@@ -1219,6 +1220,55 @@ async def auto_trading_worker(app):
         await asyncio.sleep(60)
 
 
+async def subscription_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Block all feature handlers after the one-day trial unless PRO/owner is active."""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if chat_id is None:
+        return
+    status = access_status(chat_id)
+    if status["allowed"]:
+        return
+
+    message = update.message
+    query = update.callback_query
+    if message and message.photo:
+        # Payment receipt upload must remain available after trial expiry.
+        return
+    if message and message.text and message.text.startswith("/"):
+        command = message.text.split()[0].split("@")[0].lower()
+        if command in ("/start", "/pro", "/substatus", "/id", "/stop"):
+            return
+    if query:
+        data = query.data or ""
+        if data in ("pro", "substatus", "home", "auto_stop") or data.startswith("pay:"):
+            return
+        await query.answer("انتهت التجربة المجانية. يلزم اشتراك PRO.", show_alert=True)
+        try:
+            await query.message.reply_text(
+                "⛔ انتهت تجربتك المجانية لمدة 24 ساعة. جميع الخصائص أصبحت مدفوعة.\n\n"
+                "للاشتراك وفتح جميع الخصائص اضغط /pro.\n"
+                "حساب المالك يحتفظ بصلاحياته الكاملة.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro")],
+                    [InlineKeyboardButton("📋 حالة الاشتراك", callback_data="substatus")]
+                ])
+            )
+        except Exception:
+            pass
+        raise ApplicationHandlerStop
+    if message:
+        await message.reply_text(
+            "⛔ انتهت تجربتك المجانية لمدة 24 ساعة. جميع الخصائص أصبحت مدفوعة.\n\n"
+            "للاشتراك وفتح جميع الخصائص اكتب /pro.\n"
+            "حساب المالك يحتفظ بصلاحياته الكاملة.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro")],
+                [InlineKeyboardButton("📋 حالة الاشتراك", callback_data="substatus")]
+            ])
+        )
+        raise ApplicationHandlerStop
+
+
 async def post_init(app):
     app.create_task(auto_trading_worker(app), name="auto-trading-worker")
 
@@ -1232,6 +1282,7 @@ def main():
     init_subscriptions()
     init_trading_tools()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
+    app.add_handler(TypeHandler(Update, subscription_gate), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("account", lambda u, c: show_my_account(u.effective_user, u.message)))
     app.add_handler(CommandHandler("help", help_command))
