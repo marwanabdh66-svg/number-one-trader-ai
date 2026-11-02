@@ -396,9 +396,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 otc_symbol = await asyncio.to_thread(resolve_otc_symbol, pair)
                 if not otc_symbol:
                     await update.message.reply_text(
-                        f"⚠️ لم أتمكن من إيجاد {pair} OTC في فهرس المصدر.\n"
-                        "تأكد من ضبط OTCHARTS_API_KEY في متغيرات البيئة لدى EthioDeploy، "
-                        "ومن أن مفتاحك المجاني يسمح بالوصول لهذا الزوج.",
+                        f"⚠️ بيانات {pair} OTC غير متاحة حالياً.\n"
+                        "أعاد مزود OTCharts الخطأ HTTP 402 وأوضح أن الوصول المجاني متوقف حالياً "
+                        "وأن بياناته تتطلب خطة مدفوعة. هذا ليس دليلاً على أن مفتاحك مفقود.\n\n"
+                        "لن أرسل سهم صعود أو هبوط دون شموع OTC فعلية موثوقة. "
+                        "يمكنك استخدام تحليل الأسواق العادية للتدريب فقط، لكنه لا يمثل أسعار Pocket Option OTC.",
                         reply_markup=main_keyboard()
                     )
                     return
