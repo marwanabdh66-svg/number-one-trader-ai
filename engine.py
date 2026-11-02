@@ -99,7 +99,7 @@ def fetch_market_data(symbol: str, timeframe_label: str, period: str = "5d") -> 
             return _normalize(frame), "OTCharts Pocket Option OTC"
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else "?"
-            detail = (exc.response.text[:240].replace("\\n", " ") if exc.response is not None else "")
+            detail = (exc.response.text[:240].replace("\n", " ") if exc.response is not None else "")
             print(f"OTCharts OTC request failed: HTTP {status}; {detail}")
             return pd.DataFrame(), f"OTCharts (HTTP {status})"
         except Exception as exc:
@@ -362,6 +362,13 @@ def analyze_otc_poc(asset: str, symbol: str, timeframe: str) -> dict | None:
     if len(data) < 55:
         return None
 
+    # Reject broken candle sequences rather than interpreting a data outage as a price move.
+    expected_seconds = OTC_TIMEFRAMES.get(timeframe, 300)
+    if isinstance(confirmed.index, pd.DatetimeIndex):
+        gaps = confirmed.index.to_series().diff().dt.total_seconds().dropna().tail(60)
+        if not gaps.empty and (gaps > expected_seconds * 1.5).any():
+            print("OTC POC analysis skipped: candle history contains gaps")
+            return None
     profile = confirmed.tail(120).copy()
     if len(profile) < 20:
         return None
