@@ -203,6 +203,38 @@ def calculate_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     data["atr"] = tr.rolling(14).mean()
     return data.dropna()
 
+
+def detect_poc_retest(frame: pd.DataFrame) -> tuple[str | None, str | None]:
+    """Return a single arrow only after a volume POC retest and candle confirmation."""
+    data = _normalize(frame).tail(120).copy()
+    if len(data) < 20 or float(data["volume"].fillna(0).sum()) <= 0:
+        return None, None
+    typical = (data["high"] + data["low"] + data["close"]) / 3
+    low_edge = float(data["low"].min())
+    high_edge = float(data["high"].max())
+    if not math.isfinite(low_edge + high_edge) or high_edge <= low_edge:
+        return None, None
+    bins = 40
+    bucket = ((typical - low_edge) / (high_edge - low_edge) * bins).clip(0, bins - 1).astype(int)
+    volume_by_bucket = data["volume"].fillna(0).groupby(bucket).sum()
+    if volume_by_bucket.empty or float(volume_by_bucket.max()) <= 0:
+        return None, None
+    poc_bucket = int(volume_by_bucket.idxmax())
+    poc = low_edge + (poc_bucket + 0.5) * (high_edge - low_edge) / bins
+    prev, last = data.iloc[-2], data.iloc[-1]
+    candle_key = str(data.index[-1]) if data.index is not None else str(len(data))
+    tolerance = max((high_edge - low_edge) / bins * 0.35, abs(poc) * 0.00005)
+    touched = float(last["low"]) <= poc + tolerance and float(last["high"]) >= poc - tolerance
+    if not touched:
+        return None, candle_key
+    # Retest from above followed by a bullish close, or from below followed by a bearish close.
+    if float(prev["close"]) > poc + tolerance and float(last["close"]) > poc + tolerance and float(last["close"]) > float(last["open"]):
+        return "⬆️", candle_key
+    if float(prev["close"]) < poc - tolerance and float(last["close"]) < poc - tolerance and float(last["close"]) < float(last["open"]):
+        return "⬇️", candle_key
+    return None, candle_key
+
+
 @dataclass
 class Signal:
     asset: str
