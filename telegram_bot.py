@@ -90,6 +90,7 @@ def main_keyboard():
          InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
         [InlineKeyboardButton("🛡️ حارس الانضباط", callback_data="discipline"),
          InlineKeyboardButton("🎓 أكاديمية التداول", callback_data="learn")],
+        [InlineKeyboardButton("👤 حسابي الشخصي", callback_data="my_account")],
         [InlineKeyboardButton("⚙️ إعداداتي", callback_data="settings")],
         [InlineKeyboardButton("🧭 الدليل الإرشادي الذكي OTC — قريباً", callback_data="guide")],
         [InlineKeyboardButton("💎 اشتراك PRO", callback_data="pro"),
@@ -170,6 +171,51 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "يمكنك إرسال سؤالك مباشرة للمساعد الذكي.",
         reply_markup=main_keyboard()
     )
+
+async def show_my_account(user, message):
+    chat_id = user.id
+    ensure_user(chat_id)
+    status = access_status(chat_id)
+    performance = get_performance(chat_id)
+    tier_names = {
+        "owner": "مالك البوت",
+        "pro": "PRO فعال",
+        "trial": "تجربة مجانية",
+        "expired": "انتهت التجربة"
+    }
+    username = f"@{user.username}" if user.username else "غير محدد"
+    if status["tier"] == "owner":
+        plan_detail = "صلاحيات المالك كاملة"
+    elif status["tier"] == "pro":
+        plan_detail = f"متبقي {status['days_left']} يوم/أيام"
+    elif status["tier"] == "trial":
+        plan_detail = f"متبقي {status['days_left']} يوم/أيام، واستخدامات اليوم: {status['remaining']}"
+    else:
+        plan_detail = "يمكنك طلب الاشتراك من القائمة"
+    text = (
+        "👤 حسابك في NUMBER ONE TRADER AI\\n\\n"
+        f"الاسم: {user.full_name}\\n"
+        f"اسم المستخدم: {username}\\n"
+        f"رقم تيليجرام: {chat_id}\\n\\n"
+        f"💎 الخطة: {tier_names.get(status['tier'], status['tier'])}\\n"
+        f"{plan_detail}\\n\\n"
+        "📒 ملخص دفتر التداول الخاص بك\\n"
+        f"عدد الصفقات المسجلة: {performance['total']}\\n"
+        f"صافي النتائج المدخلة: {performance['net']:+.2f}\\n"
+        f"نسبة الصفقات الرابحة: {performance['win_rate']:.1f}%\\n\\n"
+        "🔐 حساب Pocket Option: غير مربوط. لم نطلب كلمة المرور أو رمز التحقق، "
+        "ولن نخزن بيانات دخول الوسيط في البوت."
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal"),
+         InlineKeyboardButton("📊 تقرير الأداء", callback_data="performance")],
+        [InlineKeyboardButton("💎 حالة الاشتراك", callback_data="substatus")],
+        [InlineKeyboardButton("🌐 فتح موقع Pocket Option", url="https://pocketoption.com/")],
+        [InlineKeyboardButton("ℹ️ معلومات الربط الآمن", callback_data="broker_link_info")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+    ])
+    await message.reply_text(text, reply_markup=keyboard)
+
 
 async def show_journal(chat_id, message):
     rows = get_trades(chat_id, 10)
@@ -409,6 +455,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "تم إيقاف فتح صفقات جديدة في المحاكاة." if stopped else "لا توجد جلسة نشطة لإيقافها.",
             reply_markup=main_keyboard()
+        )
+    elif data == "my_account":
+        await show_my_account(q.from_user, q.message)
+    elif data == "broker_link_info":
+        await q.edit_message_text(
+            "🔐 ربط حساب Pocket Option\\n\\n"
+            "حسابك الشخصي داخل NUMBER ONE يعمل الآن عبر هويتك في تيليجرام، "
+            "ويحفظ دفتر صفقاتك واشتراكك بصورة منفصلة عن بقية المستخدمين.\\n\\n"
+            "أما جلب رصيد Pocket Option والصفقات الحقيقية أو تنفيذها، فيحتاج إلى واجهة رسمية وموافقة مكتوبة من الوسيط. "
+            "لا يظهر في المصادر الرسمية العامة التي تحققنا منها مسار API عام موثق لهذا الربط، كما تحذر شروط المنصة من برامج التداول غير المصرح بها.\\n\\n"
+            "لا ترسل كلمة مرورك أو رمز التحقق أو ملفات الجلسة إلى البوت أو لأي شخص. "
+            "لن نستخدم أدوات غير رسمية قد تعرض حسابك أو أموالك للخطر.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 موقع Pocket Option الرسمي", url="https://pocketoption.com/")],
+                [InlineKeyboardButton("👤 العودة إلى حسابي", callback_data="my_account")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
         )
     elif data == "home":
         await q.edit_message_text(HELP_TEXT, reply_markup=main_keyboard())
@@ -952,6 +1015,7 @@ def main():
     init_trading_tools()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("account", lambda u, c: show_my_account(u.effective_user, u.message)))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("markets", lambda u, c: u.message.reply_text("الدليل الإرشادي الذكي — قريباً. الخدمة متوقفة مؤقتاً حتى حل مشكلة مصدر بيانات Pocket Option OTC.")))
     app.add_handler(CommandHandler("pro", pro_command))
