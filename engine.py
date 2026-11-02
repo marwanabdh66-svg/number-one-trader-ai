@@ -352,11 +352,13 @@ def analyze_otc_poc(asset: str, symbol: str, timeframe: str) -> dict | None:
     frame, source = fetch_market_data(symbol, timeframe)
     if frame.empty or not source.startswith("OTCharts Pocket Option OTC"):
         return None
-    data = calculate_indicators(frame)
+    # Ignore the newest bar: it may still be forming at the provider.
+    confirmed = _normalize(frame).iloc[:-1].copy()
+    data = calculate_indicators(confirmed)
     if len(data) < 55:
         return None
 
-    profile = _normalize(frame).tail(120).copy()
+    profile = confirmed.tail(120).copy()
     if len(profile) < 20:
         return None
     typical = (profile["high"] + profile["low"] + profile["close"]) / 3
