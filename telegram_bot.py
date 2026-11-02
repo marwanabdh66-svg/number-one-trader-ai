@@ -89,6 +89,7 @@ def main_keyboard():
         [InlineKeyboardButton("📊 تحليل أدائي", callback_data="performance"),
          InlineKeyboardButton("🕘 سجل تحليلاتي", callback_data="history")],
         [InlineKeyboardButton("🧾 فاحص العائد ونقطة التعادل", callback_data="payout_calc")],
+        [InlineKeyboardButton("💎 تقرير الأداء الأسبوعي — PRO", callback_data="weekly_report")],
         [InlineKeyboardButton("🛡️ حارس الانضباط", callback_data="discipline"),
          InlineKeyboardButton("🎓 أكاديمية التداول", callback_data="learn")],
         [InlineKeyboardButton("👤 حسابي الشخصي", callback_data="my_account")],
@@ -343,6 +344,68 @@ async def show_discipline(chat_id, message):
     ]))
 
 
+
+
+async def show_weekly_report(chat_id, message):
+    status = access_status(chat_id)
+    if status["tier"] not in ("owner", "pro"):
+        await message.reply_text(
+            "💎 تقرير الأداء الأسبوعي — خاصية PRO\\n\\n"
+            "يعرض صافي النتائج خلال آخر 7 أيام، متوسط الصفقة، عامل الربح، وأفضل وأسوأ نتيجة من صفقاتك المسجلة.\\n\\n"
+            "هذه الميزة تحتاج PRO. التقرير يعتمد على الصفقات التي تسجلها يدوياً ولا يتصل بحساب الوسيط.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 طلب اشتراك PRO", callback_data="pro")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+        return
+    rows = get_trades(chat_id, 50)
+    now = datetime.now(timezone.utc)
+    week = []
+    from datetime import timedelta
+    for row in rows:
+        try:
+            created = datetime.fromisoformat(row["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if now - created.astimezone(timezone.utc) <= timedelta(days=7):
+                week.append(row)
+        except (TypeError, ValueError):
+            continue
+    if not week:
+        await message.reply_text(
+            "📅 لا توجد صفقات مسجلة خلال آخر 7 أيام. سجّل صفقاتك في دفتر التداول ثم أعد فتح التقرير.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ تسجيل صفقة", callback_data="journal_add")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+            ])
+        )
+        return
+    pnls = [float(row["pnl"]) for row in week]
+    wins = [x for x in pnls if x > 0]
+    losses = [x for x in pnls if x < 0]
+    gross_win, gross_loss = sum(wins), abs(sum(losses))
+    profit_factor = gross_win / gross_loss if gross_loss else (float("inf") if gross_win else 0.0)
+    factor_text = "∞ (لا توجد خسائر مسجلة)" if profit_factor == float("inf") else f"{profit_factor:.2f}"
+    await message.reply_text(
+        "💎 تقرير PRO — آخر 7 أيام\\n\\n"
+        f"الصفقات المسجلة: {len(week)}\\n"
+        f"الرابحة: {len(wins)} | الخاسرة: {len(losses)} | التعادل: {len(pnls)-len(wins)-len(losses)}\\n"
+        f"نسبة الفوز: {len(wins)/len(pnls)*100:.1f}%\\n"
+        f"صافي النتائج: {sum(pnls):+.2f}\\n"
+        f"متوسط نتيجة الصفقة: {sum(pnls)/len(pnls):+.2f}\\n"
+        f"إجمالي الأرباح: {gross_win:.2f}\\n"
+        f"إجمالي الخسائر: {gross_loss:.2f}\\n"
+        f"عامل الربح: {factor_text}\\n"
+        f"أفضل صفقة: {max(pnls):+.2f} | أسوأ صفقة: {min(pnls):+.2f}\\n\\n"
+        "⚠️ تقرير حسابي من سجل يدوي، لا يضمن النتائج المستقبلية ولا يتضمن صفقات غير مسجلة أو رسوم الوسيط.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📒 دفتر التداول", callback_data="journal")],
+            [InlineKeyboardButton("🏠 الرئيسية", callback_data="home")]
+        ])
+    )
+
+
 async def show_history(chat_id, message):
     con = db()
     rows = con.execute(
@@ -537,6 +600,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("أرسل سعر الدخول بالأرقام فقط، مثال: 1.0850")
     elif data == "performance":
         await show_performance(q.message.chat_id, q.message)
+    elif data == "weekly_report":
+        await show_weekly_report(q.message.chat_id, q.message)
     elif data == "payout_calc":
         context.user_data["awaiting_payout_input"] = True
         await q.edit_message_text(
@@ -1066,6 +1131,7 @@ def main():
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("journal", journal_command))
     app.add_handler(CommandHandler("performance", performance_command))
+    app.add_handler(CommandHandler("weekly", lambda u, c: show_weekly_report(u.effective_chat.id, u.message)))
     app.add_handler(CommandHandler("learn", lambda u, c: show_learning(u.effective_chat.id, u.message)))
     app.add_handler(CommandHandler("discipline", lambda u, c: show_discipline(u.effective_chat.id, u.message)))
     app.add_handler(CommandHandler("risk", lambda u, c: risk_command(u, c)))
