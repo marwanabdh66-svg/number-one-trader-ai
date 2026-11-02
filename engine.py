@@ -99,7 +99,8 @@ def fetch_market_data(symbol: str, timeframe_label: str, period: str = "5d") -> 
             return _normalize(frame), "OTCharts Pocket Option OTC"
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else "?"
-            print(f"OTCharts OTC request failed: HTTP {status}")
+            detail = (exc.response.text[:240].replace("\\n", " ") if exc.response is not None else "")
+            print(f"OTCharts OTC request failed: HTTP {status}; {detail}")
             return pd.DataFrame(), f"OTCharts (HTTP {status})"
         except Exception as exc:
             print(f"OTCharts OTC request failed: {type(exc).__name__}")
@@ -163,6 +164,9 @@ def resolve_otc_symbol(pair: str) -> str | None:
             name = str(item.get("name", "")).upper().replace("/", "").replace(" ", "").replace("OTC", "")
             symbol_normalized = symbol.upper().replace("_OTC", "").replace("/", "").replace("-", "")
             if normalized == name or normalized == symbol_normalized:
+                if item.get("open") is False:
+                    print(f"Pocket Option OTC instrument is currently closed: {symbol}")
+                    return None
                 _OTC_SYMBOL_CACHE[normalized] = (time.time(), symbol)
                 return symbol
     except requests.HTTPError as exc:
