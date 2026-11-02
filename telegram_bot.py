@@ -4,7 +4,10 @@ import asyncio
 import sqlite3
 from datetime import datetime, timezone
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # The bot can still run without the optional AI assistant.
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -18,7 +21,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 DB_PATH = os.getenv("BOT_DB_PATH", "number_one_bot.sqlite3")
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=45.0) if OPENAI_API_KEY else None
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=45.0) if OPENAI_API_KEY and OpenAI is not None else None
 
 SYSTEM_PROMPT = """أنت المساعد الذكي الرسمي في NUMBER ONE TRADER AI.
 أجب بالعربية الواضحة. اشرح التداول والمؤشرات للمبتدئين.
